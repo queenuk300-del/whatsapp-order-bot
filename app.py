@@ -14,7 +14,7 @@ def home():
         sheet = client.open("Restaurant_Menu").sheet1
         menu_data = sheet.get_all_records()
         items_count = len(menu_data)
-        return f"Mubarak Ho! Hussain Abbas ka Bot Google Sheet se connect ho gaya hai! 🎉<br>Total Menu Items: {items_count}"
+        return f"Mubarak ho Umair shb ka Bot Google Sheet se connect ho gaya hai! 🎉<br>Total Menu Items: {items_count}"
     
     except Exception as e:
         return f"Bot Live hai, lekin Sheet connect nahi hui. Error: {e}"
