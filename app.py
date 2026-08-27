@@ -1,10 +1,23 @@
 from flask import Flask, request, jsonify
+import gspread
+from oauth2client.service_account import ServiceAccountCredentials
 
 app = Flask(__name__)
 
+scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+creds = ServiceAccountCredentials.from_json_keyfile_name("credentials.json", scope)
+client = gspread.authorize(creds)
+
 @app.route('/', methods=['GET'])
 def home():
-    return "Mubarak Ho! Hussain Abbas ka WhatsApp Bot Render par Live hai! 🚀"
+    try:
+        sheet = client.open("Restaurant_Menu").sheet1
+        menu_data = sheet.get_all_records()
+        items_count = len(menu_data)
+        return f"Mubarak Ho! Hussain Abbas ka Bot Google Sheet se connect ho gaya hai! 🎉<br>Total Menu Items: {items_count}"
+    
+    except Exception as e:
+        return f"Bot Live hai, lekin Sheet connect nahi hui. Error: {e}"
 
 @app.route('/webhook', methods=['GET', 'POST'])
 def webhook():
@@ -17,4 +30,4 @@ def webhook():
 
 if __name__ == "__main__":
     app.run(host='0.0.0.0', port=10000)
-  
+    
