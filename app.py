@@ -15,7 +15,8 @@ SHEET_NAME = os.environ.get("SHEET_NAME", "RestaurantMenu")
 
 # Gemini API Key Setup
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
-genai.configure(api_key=GEMINI_API_KEY)
+if GEMINI_API_KEY:
+    genai.configure(api_key=GEMINI_API_KEY)
 
 user_sessions = {}
 
@@ -71,13 +72,13 @@ Total: [Total Amount in Rs]
 Instructions: [Agar koi special instructions hon, warna N/A]
 """
     
-    # Updated to latest working model
     model = genai.GenerativeModel(
         model_name="gemini-3.6-flash",
         system_instruction=system_instruction
     )
     return model.start_chat(history=[])
-    @app.route("/webhook", methods=["GET"])
+
+@app.route("/webhook", methods=["GET"])
 def verify_webhook():
     mode = request.args.get("hub.mode")
     token = request.args.get("hub.verify_token")
@@ -128,26 +129,20 @@ def webhook():
                 return jsonify({"status": "success"}), 200
 
             try:
-                # Send user message to AI
                 response = chat.send_message(msg_body)
                 ai_reply = response.text
 
-                # Check if AI triggered the final order alert
                 if "||ORDER_DONE||" in ai_reply:
                     order_details = ai_reply.replace("||ORDER_DONE||", "").strip()
                     
-                    # Alert Owner
                     owner_alert = f"🚨 *URGENT: Almaida Fried Par Naya AI Order Aaya Hai!* 🚨\n\n📱 *Customer Number:* {sender_phone}\n\n{order_details}\n\n⚡ *Kitchen ko foran tayari ka hukm dein!*"
                     send_whatsapp_message(OWNER_PHONE, owner_alert)
                     
-                    # Alert Customer
                     customer_msg = "🎉 *Order Confirmed!* 🎉\n\nAapka order successfully book ho gaya hai aur kitchen mein chef ko bhej diya gaya hai! 👨‍🍳\n⏱️ *Estimated Delivery Time:* 35 to 45 minutes.\n\nGaram garam khana jald aapke darwaze par hoga. Shukriya! 🍔✨"
                     send_whatsapp_message(sender_phone, customer_msg)
                     
-                    # Reset chat for future orders
                     user_sessions[sender_phone] = create_ai_session()
                 else:
-                    # Send normal AI conversation response
                     send_whatsapp_message(sender_phone, ai_reply)
 
             except Exception as ai_error:
@@ -162,4 +157,4 @@ def webhook():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
-    
+            
