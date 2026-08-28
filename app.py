@@ -171,9 +171,9 @@ def webhook():
                 # Add user message to history
                 user_sessions[sender_phone].append({"role": "user", "content": msg_body})
 
-                # Call OpenRouter API (Meta Llama 3 Free Model)
+                # Call OpenRouter API with universal free router
                 response = client.chat.completions.create(
-                    model="meta-llama/llama-3.1-8b-instruct:free",
+                    model="openrouter/free",
                     messages=user_sessions[sender_phone]
                 )
                 
@@ -223,4 +223,4 @@ def webhook():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
-                
+    
