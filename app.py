@@ -24,7 +24,6 @@ def get_menu_from_sheet():
     except Exception as e:
         print("Google Sheet Error:", e)
     
-    # Almaida Fried Comprehensive Menu Fallback
     return [
         {"Name": "Zinger Deal (4 Burgers + 4 Drinks)", "Price": 950, "Image": "https://images.unsplash.com/photo-1561758033-d89a9ad46330"},
         {"Name": "Rice Deal (Mandi/Broast Rice)", "Price": 250, "Image": "https://images.unsplash.com/photo-1516714435131-44d6b64dc6a2"},
@@ -110,7 +109,6 @@ def webhook():
             step = user["step"]
             menu_items = get_menu_from_sheet()
 
-            # Global Commands: Reset / Clear / Cart
             if "clear" in msg_body or "reset" in msg_body or "cancel order" in msg_body:
                 user_sessions[sender_phone] = {"step": "menu", "cart": [], "total": 0, "name": "", "address": "", "temp_item": None, "pending_matches": []}
                 send_whatsapp_message(sender_phone, "🗑️ Aapka order cart clear kar diya gaya hai. Naya order shuru karne ke liye *'Menu'* ya *'Hi'* likhein.")
@@ -122,9 +120,8 @@ def webhook():
                 else:
                     cart_summary = "\n".join([f"• {i}" for i in user["cart"]])
                     send_whatsapp_message(sender_phone, f"🛒 *Aapka Current Cart:*\n{cart_summary}\n\n💰 *Total Bill:* Rs. {user['total']}\n\nOrder mukammal karne ke liye *'Done'* likhein.")
-                return jsonify({"status": "success"}}, 200
+                return jsonify({"status": "success"}), 200
 
-            # If order was already completed, handle polite post-order replies
             if step == "completed":
                 if "menu" in msg_body or "hi" in msg_body or "hello" in msg_body or "start" in msg_body or "order" in msg_body:
                     user_sessions[sender_phone] = {"step": "ordering", "cart": [], "total": 0, "name": "", "address": "", "temp_item": None, "pending_matches": []}
@@ -133,7 +130,6 @@ def webhook():
                     send_whatsapp_message(sender_phone, "😊 Aapka bohat shukriya! Enjoy your meal! 🍔✨ Agar mazeed kuch order krna ho toh *'Menu'* likh kar bata sakte hain.")
                     return jsonify({"status": "success"}), 200
 
-            # 1. Welcome & Menu Handler
             if "menu" in msg_body or "hi" in msg_body or "hello" in msg_body or "start" in msg_body:
                 user["step"] = "ordering"
                 user["pending_matches"] = []
@@ -148,7 +144,6 @@ def webhook():
                 send_whatsapp_image(sender_phone, "https://images.unsplash.com/photo-1504674900247-0877df9cc836", menu_text)
                 return jsonify({"status": "success"}), 200
 
-            # 2. Checkout / Done Trigger with Smart Upsell Option
             if "done" in msg_body or "checkout" in msg_body or "order complete" in msg_body:
                 if not user["cart"]:
                     send_whatsapp_message(sender_phone, "Aapne abhi tak kuch select nahi kiya! Pehle menu se pyari si cheez chunein. 😊")
@@ -165,7 +160,6 @@ def webhook():
                     send_whatsapp_message(sender_phone, "Zabardast! 🛒 Aapka lazeez bill tayar hai.\nAb apna *Pura Naam* pyare se andaz mein likh kar bhejein:")
                     return jsonify({"status": "success"}), 200
 
-            # 3. Handling Multi-Match Sub-categories Selection
             if step == "select_from_matches":
                 matches = user["pending_matches"]
                 if msg_body.isdigit() and 1 <= int(msg_body) <= len(matches):
@@ -196,9 +190,7 @@ def webhook():
                     send_whatsapp_message(sender_phone, "Baraye meharbani di gayi list mein se sahi number select karein:")
                     return jsonify({"status": "success"}), 200
 
-            # 4. Smart Quantity & Item Matcher
             if step == "ordering" or step == "upsell_offered":
-                # Quantity parsing (e.g. "2 zinger" or "3 fries")
                 qty = 1
                 query_words = msg_body.split()
                 if query_words and query_words[0].isdigit():
@@ -257,18 +249,15 @@ def webhook():
                 else:
                     send_whatsapp_message(sender_phone, "Bhai jaan yeh samajh nahi aaya! Baraye meharbani menu se sahi item name likhein ya *'Done'* likhein.")
 
-            # 5. Customer Name Collection
             elif step == "get_name":
                 user["name"] = msg_body.title()
                 user["step"] = "get_address"
                 send_whatsapp_message(sender_phone, f"Bohat shukriya {user['name']} ji! ❤️\nAb apna pyara sa *Delivery Address* type kar ke bhej dein (ya apni *Live Location* share kar dein).")
 
-            # 6. Final Address & Instant Owner Alert Dispatch (with Delivery Time)
             elif step == "get_address":
                 user["address"] = msg_body.title()
                 cart_summary = ", ".join(user["cart"])
                 
-                # Customer Confirmation with 35-45 mins delivery time
                 confirmation_msg = (
                     f"🎉 *Order Confirmed!* 🎉\n\n"
                     f"Aapka order successfully book ho gaya hai aur kitchen mein chef ko bhej diya gaya hai! 👨‍🍳\n"
@@ -277,10 +266,8 @@ def webhook():
                 )
                 send_whatsapp_message(sender_phone, confirmation_msg)
 
-                # Set session to completed so polite post-order replies work
                 user["step"] = "completed"
 
-                # Instant Manager/Owner Alert
                 owner_alert = (
                     f"🚨 *URGENT: Almaida Fried Par Naya Order Aaya Hai!* 🚨\n\n"
                     f"👤 *Customer Name:* {user['name']}\n"
