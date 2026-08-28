@@ -211,7 +211,7 @@ def webhook():
                 send_whatsapp_image(sender_phone, "https://images.unsplash.com/photo-1504674900247-0877df9cc836", menu_text)
                 return jsonify({"status": "success"}), 200
 
-            # 6. Fuzzy Match Confirmation Handler (e.g. peza -> Pizza)
+            # 6. Fuzzy Match Confirmation Handler
             if user["pending_fuzzy_item"]:
                 matched_item = user["pending_fuzzy_item"]
                 if msg_body in ["yes", "haan", "y", "ji", "han", "ok", "yup"]:
@@ -363,4 +363,4 @@ def webhook():
                         user["pending_matches"] = found_matches
                         user["step"] = "select_from_matches"
                         match_text = "🔍 '{}' se miltay jultay yeh lazeez options hain, batayein konsa pasand hai:\n".format(clean_query)
-                        for idx, m in enumer
+                        for idx, m in enumerate(found_matches, 1)
