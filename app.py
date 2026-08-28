@@ -112,14 +112,12 @@ def webhook():
             step = user["step"]
             menu_items = get_menu_from_sheet()
 
-            # 1. Strict Name Step Handler
             if step == "get_name":
                 user["name"] = msg_body.title()
                 user["step"] = "get_address"
                 send_whatsapp_message(sender_phone, f"Bohat shukriya {user['name']} ji! ❤️\nAb apna pyara sa *Delivery Address* type kar ke bhej dein (ya apni *Live Location* share kar dein).")
                 return jsonify({"status": "success"}), 200
 
-            # 2. Strict Address Step Handler
             if step == "get_address":
                 user["address"] = msg_body.title()
                 cart_summary = ", ".join(user["cart"])
@@ -147,7 +145,6 @@ def webhook():
                 send_whatsapp_message(OWNER_PHONE, owner_alert)
                 return jsonify({"status": "success"}), 200
 
-            # 3. Post-Order Completed Chat Handler
             if step == "completed":
                 if any(w in msg_body for w in ["menu", "hi", "hello", "start", "order", "deal", "h", "salam"]):
                     user_sessions[sender_phone] = {"step": "ordering", "cart": [], "cart_raw": [], "total": 0, "name": "", "address": "", "instructions": "", "pending_matches": [], "pending_fuzzy_item": None}
@@ -156,7 +153,6 @@ def webhook():
                     send_whatsapp_message(sender_phone, "😊 Aapka bohat shukriya! Enjoy your meal! 🍔✨ Agar mazeed kuch order krna ho toh *'Menu'* likh kar bata sakte hain.")
                     return jsonify({"status": "success"}), 200
 
-            # 4. Global Commands
             if msg_body in ["clear", "reset", "cancel", "cancel order"]:
                 user_sessions[sender_phone] = {"step": "ordering", "cart": [], "cart_raw": [], "total": 0, "name": "", "address": "", "instructions": "", "pending_matches": [], "pending_fuzzy_item": None}
                 send_whatsapp_message(sender_phone, "🗑️ Aapka cart clear kar diya gaya hai. Naya order shuru karne ke liye koi item name ya number likhein.")
@@ -195,7 +191,6 @@ def webhook():
                     send_whatsapp_message(sender_phone, "⚠️ Aisa koi item aapke cart mein nahi mila. Sahi naam likh kar try karein.")
                 return jsonify({"status": "success"}), 200
 
-            # 5. Universal Greeting & Menu Trigger
             if msg_body in ["h", "a", "b", "menu", "hi", "hello", "start", "assalam o alaikum", "salam"] or len(msg_body) <= 1:
                 user["step"] = "ordering"
                 user["pending_matches"] = []
@@ -211,7 +206,6 @@ def webhook():
                 send_whatsapp_image(sender_phone, "https://images.unsplash.com/photo-1504674900247-0877df9cc836", menu_text)
                 return jsonify({"status": "success"}), 200
 
-            # 6. Fuzzy Match Confirmation Handler
             if user["pending_fuzzy_item"]:
                 matched_item = user["pending_fuzzy_item"]
                 if msg_body in ["yes", "haan", "y", "ji", "han", "ok", "yup"]:
@@ -242,7 +236,6 @@ def webhook():
                     send_whatsapp_message(sender_phone, "Theek hai ji! Baraye meharbani menu se sahi item ka naam ya number likhein.")
                     return jsonify({"status": "success"}), 200
 
-            # 7. Checkout / Done Trigger with Smart Context-Aware Upsell
             if msg_body in ["done", "checkout", "finish", "ok done"]:
                 if not user["cart"]:
                     send_whatsapp_message(sender_phone, "Aapne abhi tak kuch select nahi kiya! Pehle menu se pyari si cheez chunein. 😊")
@@ -272,7 +265,6 @@ def webhook():
                     send_whatsapp_message(sender_phone, "Zabardast! 🛒 Aapka lazeez bill tayar hai.\nAb apna *Pura Naam* pyare se andaz mein likh kar bhejein:")
                     return jsonify({"status": "success"}), 200
 
-            # 8. Multi-match Selection Handler
             if step == "select_from_matches":
                 matches = user["pending_matches"]
                 if msg_body.isdigit() and 1 <= int(msg_body) <= len(matches):
@@ -303,15 +295,12 @@ def webhook():
                     send_whatsapp_message(sender_phone, "Baraye meharbani di gayi list mein se sahi number select karein:")
                     return jsonify({"status": "success"}), 200
 
-            # 9. Intelligent Customizations, Inquiry, Fuzzy Matching, and Item Matching
             if step == "ordering" or step == "upsell_offered":
-                # Handle Special Cooking Instructions
                 if any(w in msg_body for w in ["masala", "tez", "spicy", "sauce", "extra", "less", "kam"]):
                     user["instructions"] = (user["instructions"] + " | " + msg_body) if user["instructions"] else msg_body
                     send_whatsapp_message(sender_phone, f"✨ Aapki special requirement note kar li gayi hai: *'{msg_body}'* 👍")
                     return jsonify({"status": "success"}), 200
 
-                # Handle Item Inquiry
                 if "have" in msg_body or "available" in msg_body or "milti hai" in msg_body or "hai kya" in msg_body or "kya hai" in msg_body or "do you" in msg_body:
                     found_inquiry = []
                     for item in menu_items:
@@ -328,7 +317,6 @@ def webhook():
                         send_whatsapp_message(sender_phone, "Ji hamare paas upar menu mein diye gaye tamam items fresh available hain. Mazeed details ke liye menu check karein!")
                     return jsonify({"status": "success"}), 200
 
-                # Standard Quantity & Item Matching
                 qty = 1
                 query_words = msg_body.split()
                 if query_words and query_words[0].isdigit():
@@ -348,7 +336,6 @@ def webhook():
                     if 1 <= idx <= len(menu_items):
                         matched_item = menu_items[idx - 1]
                 
-                # Direct / Substring Match
                 if not matched_item and clean_query:
                     found_matches = []
                     for item in menu_items:
@@ -363,4 +350,15 @@ def webhook():
                         user["pending_matches"] = found_matches
                         user["step"] = "select_from_matches"
                         match_text = "🔍 '{}' se miltay jultay yeh lazeez options hain, batayein konsa pasand hai:\n".format(clean_query)
-                        for idx, m in enumerate(found_matches, 1)
+                        for idx, m in enumerate(found_matches, 1):
+                            match_text += f"{idx}️⃣ {m.get('Name')} - Rs. {m.get('Price')}\n"
+                        match_text += "\nNumber select kar ke bhejein:"
+                        send_whatsapp_message(sender_phone, match_text)
+                        return jsonify({"status": "success"}), 200
+
+                if not matched_item and clean_query:
+                    all_item_names = [str(item.get("Name", "")).lower() for item in menu_items]
+                    close_names = get_close_matches(clean_query, all_item_names, n=1, cutoff=0.5)
+                    if close_names:
+                        matched_name = close_names[0]
+                      
