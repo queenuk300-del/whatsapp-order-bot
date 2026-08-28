@@ -315,7 +315,7 @@ def webhook():
                         send_whatsapp_message(sender_phone, reply_text)
                     else:
                         send_whatsapp_message(sender_phone, "Ji hamare paas upar menu mein diye gaye tamam items fresh available hain. Mazeed details ke liye menu check karein!")
-                        return jsonify({"status": "success"}), 200
+                    return jsonify({"status": "success"}), 200
 
                 qty = 1
                 query_words = msg_body.split()
@@ -361,7 +361,16 @@ def webhook():
                     close_names = get_close_matches(clean_query, all_item_names, n=1, cutoff=0.5)
                     if close_names:
                         matched_name = close_names[0]
-                      except Exception as e:
+                        for item in menu_items:
+                            if str(item.get("Name", "")).lower() == matched_name:
+                                user["pending_fuzzy_item"] = item
+                                send_whatsapp_message(sender_phone, f"🤔 Kya aapka matlab *{item.get('Name')}* tha? (Yes / No likh kar batayein)")
+                                return jsonify({"status": "success"}), 200
+                    
+                    send_whatsapp_message(sender_phone, "⚠️ Maaf kijiye, mujhe yeh item samajh nahi aaya. Sahi naam ya number likhein, ya 'Menu' likh kar check karein.")
+                    return jsonify({"status": "success"}), 200
+
+    except Exception as e:
         print(f"Webhook Error: {e}")
         return jsonify({"status": "error"}), 500
 
@@ -369,4 +378,4 @@ def webhook():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
-                    
+                      
