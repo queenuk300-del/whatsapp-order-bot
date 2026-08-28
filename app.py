@@ -361,4 +361,12 @@ def webhook():
                     close_names = get_close_matches(clean_query, all_item_names, n=1, cutoff=0.5)
                     if close_names:
                         matched_name = close_names[0]
-                  
+                      except Exception as e:
+        print(f"Webhook Error: {e}")
+        return jsonify({"status": "error"}), 500
+
+    return jsonify({"status": "success"}), 200
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+                    
