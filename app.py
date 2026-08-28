@@ -2,8 +2,8 @@ import os
 import re
 import requests
 import gspread
-import google.generativeai as genai
 from flask import Flask, request, jsonify
+from openai import OpenAI
 
 app = Flask(__name__)
 
@@ -14,10 +14,12 @@ VERIFY_TOKEN = os.environ.get("VERIFY_TOKEN", "my_secure_verify_token")
 OWNER_PHONE = os.environ.get("OWNER_PHONE", "923046763002")
 SHEET_NAME = os.environ.get("SHEET_NAME", "RestaurantMenu")
 
-# Gemini API Key Setup
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
-if GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY)
+# OpenRouter API Setup
+OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY")
+client = OpenAI(
+    base_url="https://openrouter.ai/api/v1",
+    api_key=OPENROUTER_API_KEY,
+)
 
 user_sessions = {}
 
@@ -32,7 +34,6 @@ def get_menu_from_sheet():
     except Exception as e:
         print("Google Sheet Error:", e)
     
-    # Bht Bara aur Mukammal Menu with HD Images
     return [
         {"Name": "Zinger Deal (4 Burgers + 4 Drinks)", "Price": 950, "Image": "https://images.unsplash.com/photo-1561758033-d89a9ad46330"},
         {"Name": "Couple Deal (2 Zinger + 2 Drinks)", "Price": 550, "Image": "https://images.unsplash.com/photo-1550547660-d9450f859349"},
@@ -65,13 +66,13 @@ def get_menu_from_sheet():
         {"Name": "Cold Drink (1.5 Litre)", "Price": 200, "Image": "https://images.unsplash.com/photo-1622483767028-3f66f32aef97"}
     ]
 
-def create_ai_session():
+def get_system_instruction():
     menu_items = get_menu_from_sheet()
     menu_text = ""
     for idx, item in enumerate(menu_items, 1):
         menu_text += f"• {item.get('Name')} - Rs. {item.get('Price')} (System Image Tag: [IMAGE: {item.get('Name')}])\n"
 
-    system_instruction = f"""Aap 'Almaida Fried' ke ek nihayat enthusiastic, friendly, aur smart AI order-taker hain. Hamesha Roman Urdu mein chat karein.
+    return f"""Aap 'Almaida Fried' ke ek nihayat enthusiastic, friendly, aur smart AI order-taker hain. Hamesha Roman Urdu mein chat karein.
 
 # Aapka Menu:
 {menu_text}
@@ -79,10 +80,10 @@ def create_ai_session():
 # Aapke Rules:
 1. **Mazy Wali Guftagu:** Khane ko bht mazedar andaz mein describe karein (jaise "garma garam crispy Zinger", "cheesy juicy pizza", "thandi thar cold drink") taa ke customer ke munh mein pani aa jaye. Emojis ka khul kar istemaal karein! 🍔🍕🍟
 2. **Tasweerein Bhejna (VERY IMPORTANT):** Jab bhi aap kisi item ko suggest karein, ya customer menu mangy, toh apne message mein us item ka Image Tag lazmi lagayein. Example: Agar Zinger Burger ki baat ho rahi hai toh apne text ke andar `[IMAGE: Zinger Burger]` likhein. System khud is tag ko tasweer mein badal dega.
-3. **Full Customer Control:** Agar customer bole "1 Zinger minus kar do", "Order change karna hai", ya "Mera poora order cancel kar do", toh foran politely confirm karein, cart update karein, aur naye hisaab (total) ki details dein. Customer jo chahe change kar sakta hai, aapne koi behes nahi karni.
-4. **Smart Upselling:** Customer ki pasand dekh kar lightly upsell karein (Maslan: "Sir, crispy Zinger ke sath masaledar fries aur thandi drink lagwa dun? Maza dobara ho jayega!").
+3. **Full Customer Control:** Agar customer bole "1 Zinger minus kar do", "Order change karna hai", ya "Mera poora order cancel kar do", toh foran politely confirm karein, cart update karein, aur naye hisaab (total) ki details dein.
+4. **Smart Upselling:** Customer ki pasand dekh kar lightly upsell karein (Maslan: "Sir, crispy Zinger ke sath masaledar fries aur thandi drink lagwa dun?").
 5. **Order Completion:** Jab customer bole "Bas itna hi" ya "Done", toh us se uska "Mukammal Naam" aur "Delivery Address" mangein.
-6. **Strict Boundary (No Irrelevant Chat):** Aapka maqsad SIRF Almaida Fried ke orders lena hai. Agar koi customer siyasat, mazhab, fuzool baten, gali galoch ya kisi bhi aisi cheez par baat kare jo restaurant ya khane se related nahi hai, toh aapne uska hargiz jawab nahi dena. Sirf narmi se kehna hai: "Maaf kijiye, main Almaida Fried ka AI order-taker hoon. Main sirf menu aur orders ke hawalay se madad kar sakta hoon. Kya main aapko menu dikha dun?"
+6. **Strict Boundary (No Irrelevant Chat):** Aapka maqsad SIRF Almaida Fried ke orders lena hai. Agar koi customer siyasat, mazhab, fuzool baten, ya aisi cheez par baat kare jo restaurant se related nahi, toh sirf narmi se kahein: "Maaf kijiye, main Almaida Fried ka AI order-taker hoon. Main sirf menu aur orders ke hawalay se madad kar sakta hoon. Kya main aapko menu dikha dun?"
 7. **Final Alert Format:** JAB customer apna Naam aur Address dono de de, toh aapko apna aakhri jawab STRICTLY is format mein dena hai:
 
 ||ORDER_DONE||
@@ -92,12 +93,9 @@ Items: [Final Ordered Items ki List]
 Total: [Final Amount in Rs]
 Instructions: [Agar koi special instructions hon, warna N/A]
 """
-    
-    model = genai.GenerativeModel(
-        model_name="gemini-3.6-flash",
-        system_instruction=system_instruction
-    )
-    return model.start_chat(history=[])
+
+def create_ai_session():
+    return [{"role": "system", "content": get_system_instruction()}]
 
 @app.route("/webhook", methods=["GET"])
 def verify_webhook():
@@ -163,13 +161,28 @@ def webhook():
 
             if sender_phone not in user_sessions:
                 user_sessions[sender_phone] = create_ai_session()
-            
-            chat = user_sessions[sender_phone]
+
+            if msg_lower in ["clear", "reset", "cancel", "cancel order"]:
+                user_sessions[sender_phone] = create_ai_session()
+                send_whatsapp_message(sender_phone, "🗑️ Aapka order cancel kar diya gaya hai. Naya order shuru karne ke liye 'Hi' ya 'Menu' likhein.")
+                return jsonify({"status": "success"}), 200
 
             try:
-                response = chat.send_message(msg_body)
-                ai_reply = response.text
+                # Add user message to history
+                user_sessions[sender_phone].append({"role": "user", "content": msg_body})
 
+                # Call OpenRouter API (Meta Llama 3 Free Model)
+                response = client.chat.completions.create(
+                    model="meta-llama/llama-3.1-8b-instruct:free",
+                    messages=user_sessions[sender_phone]
+                )
+                
+                ai_reply = response.choices[0].message.content
+                
+                # Save AI response to history
+                user_sessions[sender_phone].append({"role": "assistant", "content": ai_reply})
+
+                # Image Tag Interceptor
                 image_tags = re.findall(r'\[IMAGE:\s*(.*?)\]', ai_reply, re.IGNORECASE)
                 clean_text = re.sub(r'\[IMAGE:\s*.*?\]', '', ai_reply, flags=re.IGNORECASE).strip()
 
@@ -210,4 +223,4 @@ def webhook():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
-    
+                
