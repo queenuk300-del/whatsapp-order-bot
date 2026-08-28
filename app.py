@@ -70,29 +70,28 @@ def get_system_instruction():
     menu_items = get_menu_from_sheet()
     menu_text = ""
     for idx, item in enumerate(menu_items, 1):
-        menu_text += f"- {item.get('Name')} : Rs. {item.get('Price')} [IMAGE: {item.get('Name')}]\n"
+        menu_text += f"• {item.get('Name')} - Rs. {item.get('Price')} (System Image Tag: [IMAGE: {item.get('Name')}])\n"
 
-    return f"""Aap 'Almaida Fried' ke smart aur friendly order-taker hain. Roman Urdu mein baat karein.
+    return f"""Aap 'Almaida Fried' ke ek nihayat enthusiastic, friendly, aur smart AI order-taker hain. Hamesha Roman Urdu mein chat karein.
 
-# Menu & Images:
+# Aapka Menu:
 {menu_text}
 
-# Strict Rules:
-1. **Mukhtasir aur Pyari Guftagu:** Messages bohat chhotay, khubsurat aur friendly hon. Lambi baatein ya kahaniyan bilkul nahi karni.
-2. **No Stars/Bold:** Text mein kahin bhi asterisks (*) ya stars ka istemaal hargiz na karein. Bilkul clean text likhein.
-3. **No Talking About Pictures:** Kabhi yeh mat kahein ke "main tasweer lagwa raha hoon" ya "yeh lo tasweer". Aap ne sirf message ke andar item ka exact tag [IMAGE: Item Name] likhna hai, system khud tasweer bhej dega.
-4. **Mazy Wali Lines:** Khane ka zikr karte waqt mukhtasir mazy wali line aur emojis dein taa ke bhook barhe (jaise: "Garma garam crispy zinger! 🍔").
-5. **Full Control & Upselling:** Customer ki marzi par order change/cancel karein. Halki si upselling karein (jaise sath cold drink ya fries ka kehna).
-6. **Order Completion:** Jab customer order finalize kar dey, toh us ka "Mukammal Naam" aur "Delivery Address" mangein.
-7. **Strict Boundary:** Fuzool ya restaurant ke ilawa baaton ka jawab na dein.
-8. **Final Format:** JAB customer Naam aur Address de de, toh sirf yeh format dein:
+# Aapke Rules:
+1. **Mazy Wali Guftagu:** Khane ko bht mazedar andaz mein describe karein (jaise "garma garam crispy Zinger", "cheesy juicy pizza", "thandi thar cold drink") taa ke customer ke munh mein pani aa jaye. Emojis ka khul kar istemaal karein! 🍔🍕🍟
+2. **Tasweerein Bhejna (VERY IMPORTANT):** Jab bhi aap kisi item ko suggest karein, ya customer menu mangy, toh apne message mein us item ka Image Tag lazmi lagayein. Example: Agar Zinger Burger ki baat ho rahi hai toh apne text ke andar `[IMAGE: Zinger Burger]` likhein. System khud is tag ko tasweer mein badal dega.
+3. **Full Customer Control:** Agar customer bole "1 Zinger minus kar do", "Order change karna hai", ya "Mera poora order cancel kar do", toh foran politely confirm karein, cart update karein, aur naye hisaab (total) ki details dein.
+4. **Smart Upselling:** Customer ki pasand dekh kar lightly upsell karein (Maslan: "Sir, crispy Zinger ke sath masaledar fries aur thandi drink lagwa dun?").
+5. **Order Completion:** Jab customer bole "Bas itna hi" ya "Done", toh us se uska "Mukammal Naam" aur "Delivery Address" mangein.
+6. **Strict Boundary (No Irrelevant Chat):** Aapka maqsad SIRF Almaida Fried ke orders lena hai. Agar koi customer siyasat, mazhab, fuzool baten, ya aisi cheez par baat kare jo restaurant se related nahi, toh sirf narmi se kahein: "Maaf kijiye, main Almaida Fried ka AI order-taker hoon. Main sirf menu aur orders ke hawalay se madad kar sakta hoon. Kya main aapko menu dikha dun?"
+7. **Final Alert Format:** JAB customer apna Naam aur Address dono de de, toh aapko apna aakhri jawab STRICTLY is format mein dena hai:
 
 ||ORDER_DONE||
-Name: [Customer Name]
-Address: [Customer Address]
-Items: [Final Items]
-Total: [Total Amount]
-Instructions: [N/A or Notes]
+Name: [Customer Ka Naam]
+Address: [Customer Ka Address]
+Items: [Final Ordered Items ki List]
+Total: [Final Amount in Rs]
+Instructions: [Agar koi special instructions hon, warna N/A]
 """
 
 def create_ai_session():
@@ -165,25 +164,26 @@ def webhook():
 
             if msg_lower in ["clear", "reset", "cancel", "cancel order"]:
                 user_sessions[sender_phone] = create_ai_session()
-                send_whatsapp_message(sender_phone, "🗑️ Aapka order cancel kar diya gaya hai. Naya order shuru karne ke liye 'Hi' likhein.")
+                send_whatsapp_message(sender_phone, "🗑️ Aapka order cancel kar diya gaya hai. Naya order shuru karne ke liye 'Hi' ya 'Menu' likhein.")
                 return jsonify({"status": "success"}), 200
 
             try:
+                # Add user message to history
                 user_sessions[sender_phone].append({"role": "user", "content": msg_body})
 
+                # Call OpenRouter API with universal free router
                 response = client.chat.completions.create(
                     model="openrouter/free",
                     messages=user_sessions[sender_phone]
                 )
                 
                 ai_reply = response.choices[0].message.content
+                
+                # Save AI response to history
                 user_sessions[sender_phone].append({"role": "assistant", "content": ai_reply})
 
-                # Clean stars if AI accidentally puts them
-                ai_reply = ai_reply.replace("*", "")
-
-                # Corrected Regex handling
-                image_tags = re.findall(r'\[IMAGE:\s*(.*?)\]', ai_reply, flags=re.IGNORECASE)
+                # Image Tag Interceptor
+                image_tags = re.findall(r'\[IMAGE:\s*(.*?)\]', ai_reply, re.IGNORECASE)
                 clean_text = re.sub(r'\[IMAGE:\s*.*?\]', '', ai_reply, flags=re.IGNORECASE).strip()
 
                 images_to_send = []
@@ -197,10 +197,10 @@ def webhook():
 
                 if "||ORDER_DONE||" in clean_text:
                     order_details = clean_text.replace("||ORDER_DONE||", "").strip()
-                    owner_alert = f"🚨 URGENT: Almaida Fried Par Naya AI Order Aaya Hai! 🚨\n\n📱 Customer Number: {sender_phone}\n\n{order_details}\n\n⚡ Kitchen ko foran tayari ka hukm dein!"
+                    owner_alert = f"🚨 *URGENT: Almaida Fried Par Naya AI Order Aaya Hai!* 🚨\n\n📱 *Customer Number:* {sender_phone}\n\n{order_details}\n\n⚡ *Kitchen ko foran tayari ka hukm dein!*"
                     send_whatsapp_message(OWNER_PHONE, owner_alert)
                     
-                    customer_msg = "🎉 Order Confirmed! 🎉\n\nAapka order successfully book ho gaya hai aur kitchen mein chef ko bhej diya gaya hai! 👨‍🍳\n⏱️ Estimated Delivery Time: 35 to 45 minutes.\n\nGaram garam khana jald aapke darwaze par hoga. Shukriya! 🍔✨"
+                    customer_msg = "🎉 *Order Confirmed!* 🎉\n\nAapka order successfully book ho gaya hai aur kitchen mein chef ko bhej diya gaya hai! 👨‍🍳\n⏱️ *Estimated Delivery Time:* 35 to 45 minutes.\n\nGaram garam khana jald aapke darwaze par hoga. Shukriya! 🍔✨"
                     send_whatsapp_message(sender_phone, customer_msg)
                     user_sessions[sender_phone] = create_ai_session()
                 else:
@@ -223,4 +223,3 @@ def webhook():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
-                        
