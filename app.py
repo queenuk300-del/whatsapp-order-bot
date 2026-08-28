@@ -24,7 +24,6 @@ def get_menu_from_sheet():
     except Exception as e:
         print("Google Sheet Error:", e)
     
-    # Almaida Fried Comprehensive Menu Fallback
     return [
         {"Name": "Zinger Deal (4 Burgers + 4 Drinks)", "Price": 950, "Image": "https://images.unsplash.com/photo-1561758033-d89a9ad46330"},
         {"Name": "Rice Deal (Mandi/Broast Rice)", "Price": 250, "Image": "https://images.unsplash.com/photo-1516714435131-44d6b64dc6a2"},
@@ -103,6 +102,7 @@ def webhook():
                     "total": 0,
                     "name": "",
                     "address": "",
+                    "instructions": "",
                     "pending_matches": []
                 }
 
@@ -121,6 +121,7 @@ def webhook():
             if step == "get_address":
                 user["address"] = msg_body.title()
                 cart_summary = ", ".join(user["cart"])
+                special_notes = f"\n📝 *Instructions:* {user['instructions']}" if user['instructions'] else ""
                 
                 confirmation_msg = (
                     f"🎉 *Order Confirmed!* 🎉\n\n"
@@ -137,7 +138,8 @@ def webhook():
                     f"📱 *Phone Number:* {sender_phone}\n"
                     f"🛒 *Ordered Items:* {cart_summary}\n"
                     f"💰 *Total Bill:* Rs. {user['total']}\n"
-                    f"📍 *Delivery Address/Location:* {user['address']}\n\n"
+                    f"📍 *Delivery Address/Location:* {user['address']}"
+                    f"{special_notes}\n\n"
                     f"⚡ *Kitchen ko foran tayari ka hukm dein!*"
                 )
                 send_whatsapp_message(OWNER_PHONE, owner_alert)
@@ -145,16 +147,16 @@ def webhook():
 
             # 3. Post-Order Completed Chat Handler
             if step == "completed":
-                if any(w in msg_body for w in ["menu", "hi", "hello", "start", "order", "deal"]):
-                    user_sessions[sender_phone] = {"step": "ordering", "cart": [], "cart_raw": [], "total": 0, "name": "", "address": "", "pending_matches": []}
+                if any(w in msg_body for w in ["menu", "hi", "hello", "start", "order", "deal", "h", "salam"]):
+                    user_sessions[sender_phone] = {"step": "ordering", "cart": [], "cart_raw": [], "total": 0, "name": "", "address": "", "instructions": "", "pending_matches": []}
                     step = "ordering"
                 else:
                     send_whatsapp_message(sender_phone, "😊 Aapka bohat shukriya! Enjoy your meal! 🍔✨ Agar mazeed kuch order krna ho toh *'Menu'* likh kar bata sakte hain.")
                     return jsonify({"status": "success"}), 200
 
-            # 4. Global Commands (Cart, Clear, Modify)
+            # 4. Global Commands
             if msg_body in ["clear", "reset", "cancel", "cancel order"]:
-                user_sessions[sender_phone] = {"step": "ordering", "cart": [], "cart_raw": [], "total": 0, "name": "", "address": "", "pending_matches": []}
+                user_sessions[sender_phone] = {"step": "ordering", "cart": [], "cart_raw": [], "total": 0, "name": "", "address": "", "instructions": "", "pending_matches": []}
                 send_whatsapp_message(sender_phone, "🗑️ Aapka cart clear kar diya gaya hai. Naya order shuru karne ke liye koi item name ya number likhein.")
                 return jsonify({"status": "success"}), 200
 
@@ -191,26 +193,22 @@ def webhook():
                     send_whatsapp_message(sender_phone, "⚠️ Aisa koi item aapke cart mein nahi mila. Sahi naam likh kar try karein.")
                 return jsonify({"status": "success"}), 200
 
-            # 5. Welcome & Menu Handler (Clean numbering for 10, 11 to avoid keycap split)
-            if msg_body in ["menu", "hi", "hello", "start", "assalam o alaikum", "salam"]:
+            # 5. Universal Greeting & Menu Trigger (Handles H, A, B, Salam, Hello, Hi, Menu, etc.)
+            if msg_body in ["h", "a", "b", "menu", "hi", "hello", "start", "assalam o alaikum", "salam"] or len(msg_body) <= 1:
                 user["step"] = "ordering"
                 user["pending_matches"] = []
                 menu_text = "🍔 *Welcome to Almaida Fried!* 🍟\n_Maza Kuch Khas Hai_ ✨\n\nYeh raha hamara lazeez menu:\n"
                 for idx, item in enumerate(menu_items, 1):
                     name = item.get("Name", "Item")
                     price = item.get("Price", 0)
-                    if idx <= 9:
-                        # Keycap digits for 1-9
-                        num_icon = f"{idx}\u20e3"
-                    else:
-                        num_icon = f"{idx}."
+                    num_icon = f"{idx}\u20e3" if idx <= 9 else f"{idx}."
                     menu_text += f"{num_icon} *{name}* - Rs. {price}\n"
                 
                 menu_text += "\nAapko kya order karna hai? Item ka naam ya number likh kar bhejein! ❤️"
                 send_whatsapp_image(sender_phone, "https://images.unsplash.com/photo-1504674900247-0877df9cc836", menu_text)
                 return jsonify({"status": "success"}), 200
 
-            # 6. Checkout / Done Trigger
+            # 6. Checkout / Done Trigger with Smart Context-Aware Upsell
             if msg_body in ["done", "checkout", "finish", "ok done"]:
                 if not user["cart"]:
                     send_whatsapp_message(sender_phone, "Aapne abhi tak kuch select nahi kiya! Pehle menu se pyari si cheez chunein. 😊")
@@ -218,7 +216,22 @@ def webhook():
                 
                 if step != "upsell_offered":
                     user["step"] = "upsell_offered"
-                    send_whatsapp_message(sender_phone, "🍟 *Ek choti si recommendation:* Kya iske sath Mazedar Masala Fries ya thandi Cold Drink add karwana chahenge, ya itna kafi hai?\n\n(Mazeed item likhein, ya *'No'* / *'Final'* likhein)")
+                    cart_text_all = " ".join(user["cart"]).lower()
+                    
+                    # Smart check so we don't recommend what they already ordered
+                    has_fries = "fries" in cart_text_all
+                    has_drink = "drink" in cart_text_all
+                    
+                    if has_fries and has_drink:
+                        # Skip upsell entirely if they already have both fries and drinks!
+                        user["step"] = "get_name"
+                        send_whatsapp_message(sender_phone, "Zabardast! 🛒 Aapka lazeez bill tayar hai.\nAb apna *Pura Naam* pyare se andaz mein likh kar bhejein:")
+                    elif has_fries:
+                        send_whatsapp_message(sender_phone, "🥤 *Ek choti si recommendation:* Kya iske sath thandi thandi Cold Drink add karwana chahenge, ya itna kafi hai?\n\n(Mazeed item likhein, ya *'No'* / *'Final'* likhein)")
+                    elif has_drink:
+                        send_whatsapp_message(sender_phone, "🍟 *Ek choti si recommendation:* Kya iske sath Mazedar Masala Fries add karwana chahenge, ya itna kafi hai?\n\n(Mazeed item likhein, ya *'No'* / *'Final'* likhein)")
+                    else:
+                        send_whatsapp_message(sender_phone, "🍟 *Ek choti si recommendation:* Kya iske sath Mazedar Masala Fries ya thandi Cold Drink add karwana chahenge, ya itna kafi hai?\n\n(Mazeed item likhein, ya *'No'* / *'Final'* likhein)")
                     return jsonify({"status": "success"}), 200
 
             if step == "upsell_offered":
@@ -258,22 +271,36 @@ def webhook():
                     send_whatsapp_message(sender_phone, "Baraye meharbani di gayi list mein se sahi number select karein:")
                     return jsonify({"status": "success"}), 200
 
-            # 8. Robust Quantity & Item Matcher (Direct Number or Keyword)
+            # 8. Intelligent Customizations, Inquiry, and Item Matching
             if step == "ordering" or step == "upsell_offered":
-                # Parse quantity if provided (e.g., "2 zinger" or "3 8" etc.)
-                qty = 1
-                clean_query = msg_body
-                query_words = msg_body.split()
-                
-                if len(query_words) >= 2 and query_words[0].isdigit() and query_words[1].isdigit():
-                    # Handle case like "1 0" or similar, or quantity prefix
-                    pass
+                # Handle Special Cooking Instructions / Customizations (e.g., "masala tez", "extra spicy", "less spicy")
+                if any(w in msg_body for w in ["masala", "tez", "spicy", "sauce", "extra", "less", "kam"]):
+                    user["instructions"] = (user["instructions"] + " | " + msg_body) if user["instructions"] else msg_body
+                    send_whatsapp_message(sender_phone, f"✨ Aapki special requirement note kar li gayi hai: *'{msg_body}'* 👍")
+                    return jsonify({"status": "success"}), 200
 
+                # Handle Item Inquiry (e.g., "do you have loaded fries?")
+                if "have" in msg_body or "available" in msg_body or "milti hai" in msg_body or "hai kya" in msg_body or "kya hai" in msg_body or "do you" in msg_body:
+                    found_inquiry = []
+                    for item in menu_items:
+                        if any(word in item.get("Name", "").lower() for word in msg_body.split() if len(word) > 2):
+                            found_inquiry.append(item)
+                    
+                    if found_inquiry:
+                        reply_text = "Jee bilkul! Yeh items available hain:\n"
+                        for fi in found_inquiry:
+                            reply_text += f"• {fi.get('Name')} - Rs. {fi.get('Price')}\n"
+                        reply_text += "\nInhe add karne ke liye inka naam ya number likh dein!"
+                        send_whatsapp_message(sender_phone, reply_text)
+                    else:
+                        send_whatsapp_message(sender_phone, "Ji hamare paas upar menu mein diye gaye tamam items fresh available hain. Mazeed details ke liye menu check karein!")
+                    return jsonify({"status": "success"}), 200
+
+                # Standard Quantity & Item Matching
+                qty = 1
+                query_words = msg_body.split()
                 if query_words and query_words[0].isdigit():
                     potential_qty = int(query_words[0])
-                    # If the first number is within menu range (1 to len(menu)), treat it as item selection number rather than qty unless specified
-                    # But wait, to make it foolproof: if user writes "2", it could mean item #2 or quantity 2.
-                    # Standard convention: if single digit number matches menu index 1..len(menu), treat as item number.
                     if 1 <= potential_qty <= len(menu_items) and len(query_words) == 1:
                         matched_item = menu_items[potential_qty - 1]
                         qty = 1
@@ -284,19 +311,15 @@ def webhook():
                     clean_query = msg_body
 
                 matched_item = None
-                
-                # Check if clean_query is a direct number
                 if clean_query.isdigit():
                     idx = int(clean_query)
                     if 1 <= idx <= len(menu_items):
                         matched_item = menu_items[idx - 1]
                 
-                # If not by number, search flexibly by keyword across menu items
                 if not matched_item and clean_query:
                     found_matches = []
                     for item in menu_items:
                         name_lower = str(item.get("Name", "")).lower()
-                        # Flexible matching: check if query words appear in item name
                         query_tokens = clean_query.split()
                         if all(token in name_lower for token in query_tokens):
                             found_matches.append(item)
@@ -338,16 +361,4 @@ def webhook():
                     else:
                         send_whatsapp_message(sender_phone, response_text)
                 else:
-                    if msg_body in ["no", "ni", "nahi", "wrong order", "ok", "thanks"]:
-                        send_whatsapp_message(sender_phone, "Theek hai ji! Agar order mukammal karna hai toh *'Done'* likhein, ya cart dekhne ke liye *'Cart'* likhein.")
-                    else:
-                        send_whatsapp_message(sender_phone, "Bhai jaan yeh item samajh nahi aaya! Baraye meharbani menu se sahi item name ya number (jaise 5, 8, 10) likhein.")
-
-    except Exception as e:
-        print(f"Error: {e}")
-
-    return jsonify({"status": "success"}), 200
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=10000)
-                        
+                    # Check i
