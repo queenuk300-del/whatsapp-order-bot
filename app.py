@@ -63,7 +63,7 @@ def get_menu_from_sheet():
         {"Name": "Oreo Shake", "Price": 250, "Image": "https://images.unsplash.com/photo-1572490122747-3968b75cc699"},
         {"Name": "Chocolate Shake", "Price": 250, "Image": "https://images.unsplash.com/photo-1572490122747-3968b75cc699"},
         {"Name": "Cold Drink (Regular/Can)", "Price": 100, "Image": "https://images.unsplash.com/photo-1622483767028-3f66f32aef97"},
-        {"Name": "ColdDrink (1.5 Litre)", "Price": 200, "Image": "https://images.unsplash.com/photo-1622483767028-3f66f32aef97"}
+        {"Name": "Cold Drink (1.5 Litre)", "Price": 200, "Image": "https://images.unsplash.com/photo-1622483767028-3f66f32aef97"}
     ]
 
 def get_system_instruction():
@@ -182,8 +182,9 @@ def webhook():
                 # Clean stars if AI accidentally puts them
                 ai_reply = ai_reply.replace("*", "")
 
-                image_tags = re.findall(r'\[IMAGE:\s*(.*?)\]', ai_reply, fontstyle=re.IGNORECASE) if hasattr(re, 'IGNORECASE') else re.findall(r'\[IMAGE:\s*(.*?)\]', ai_reply, re.I)
-                clean_text = re.sub(r'\[IMAGE:\s*.*?\]', '', ai_reply, flags=re.I).strip()
+                # Corrected Regex handling
+                image_tags = re.findall(r'\[IMAGE:\s*(.*?)\]', ai_reply, flags=re.IGNORECASE)
+                clean_text = re.sub(r'\[IMAGE:\s*.*?\]', '', ai_reply, flags=re.IGNORECASE).strip()
 
                 images_to_send = []
                 menu_items = get_menu_from_sheet()
@@ -222,4 +223,4 @@ def webhook():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
-    
+                        
