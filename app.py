@@ -9,7 +9,7 @@ WHATSAPP_TOKEN = os.environ.get("WHATSAPP_TOKEN")
 PHONE_NUMBER_ID = os.environ.get("PHONE_NUMBER_ID")
 VERIFY_TOKEN = os.environ.get("VERIFY_TOKEN", "my_secure_verify_token")
 OWNER_PHONE = os.environ.get("OWNER_PHONE", "923023099306")
-SHEET_NAME = os.environ.get("SHEET_NAME", "RestaurantMenu")  # Apni Google Sheet ka naam yahan likhein
+SHEET_NAME = os.environ.get("SHEET_NAME", "RestaurantMenu")
 
 user_sessions = {}
 
@@ -18,10 +18,19 @@ def get_menu_from_sheet():
         gc = gspread.service_account(filename='/etc/secrets/credentials.json')
         sh = gc.open(SHEET_NAME)
         worksheet = sh.get_worksheet(0)
-        return worksheet.get_all_records()
+        records = worksheet.get_all_records()
+        if records:
+            return records
     except Exception as e:
         print("Google Sheet Error:", e)
-        return []
+    
+    # Fallback default menu agar sheet load na ho paye
+    return [
+        {"Name": "Chicken Biryani", "Price": 450},
+        {"Name": "Special Zinger Burger", "Price": 380},
+        {"Name": "Large Family Pizza", "Price": 1500},
+        {"Name": "Cold Drink (1.5L)", "Price": 200}
+    ]
 
 @app.route("/webhook", methods=["GET"])
 def verify_webhook():
@@ -80,7 +89,6 @@ def webhook():
                 user["step"] = "ordering"
                 menu_text = "🌟 *Welcome to Royal Spice Restaurant!* 🌟\n\nYeh raha hamara live menu:\n"
                 for idx, item in enumerate(menu_items, 1):
-                    # Expecting columns in sheet: Name, Price
                     name = item.get("Name", "Item")
                     price = item.get("Price", 0)
                     menu_text += f"{idx}️⃣ *{name}* - Rs. {price}\n"
@@ -131,7 +139,7 @@ def webhook():
                 user["address"] = msg_body.title()
                 cart_summary = ", ".join(user["cart"])
                 
-                confirmation_msg = "🎉 *Order Confirmed!* 🎉\n\nAapka order successfully book ho gaya hai aur restaurant owner ko bhej diya gaya है!"
+                confirmation_msg = "🎉 *Order Confirmed!* 🎉\n\nAapka order successfully book ho gaya hai aur restaurant owner ko bhej diya gaya hai!"
                 send_whatsapp_message(sender_phone, confirmation_msg)
 
                 owner_msg = (
@@ -153,4 +161,4 @@ def webhook():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=10000)
-                        
+                    
