@@ -8,7 +8,7 @@ app = Flask(__name__)
 WHATSAPP_TOKEN = os.environ.get("WHATSAPP_TOKEN")
 PHONE_NUMBER_ID = os.environ.get("PHONE_NUMBER_ID")
 VERIFY_TOKEN = os.environ.get("VERIFY_TOKEN", "my_secure_verify_token")
-OWNER_PHONE = os.environ.get("OWNER_PHONE", "923046763002")  # Naya Admin Number set kar diya gaya hai
+OWNER_PHONE = os.environ.get("OWNER_PHONE", "923046763002")
 SHEET_NAME = os.environ.get("SHEET_NAME", "RestaurantMenu")
 
 user_sessions = {}
@@ -24,16 +24,19 @@ def get_menu_from_sheet():
     except Exception as e:
         print("Google Sheet Error:", e)
     
+    # Almaida Fried Comprehensive Menu Fallback with Sample Image URLs
     return [
-        {"Name": "Zinger Burger", "Price": 380},
-        {"Name": "Beef Burger", "Price": 450},
-        {"Name": "Club Sandwich", "Price": 350},
-        {"Name": "Regular Pizza (Small)", "Price": 800},
-        {"Name": "Large Family Pizza", "Price": 1500},
-        {"Name": "French Fries (Masala)", "Price": 200},
-        {"Name": "Chicken Garlic Mayo Roll", "Price": 250},
-        {"Name": "Cold Drink (500ml)", "Price": 100},
-        {"Name": "Cold Drink (1.5 Litre)", "Price": 200}
+        {"Name": "Zinger Deal (4 Burgers + 4 Drinks)", "Price": 950, "Image": "https://images.unsplash.com/photo-1561758033-d89a9ad46330"},
+        {"Name": "Rice Deal (Mandi/Broast Rice)", "Price": 250, "Image": "https://images.unsplash.com/photo-1516714435131-44d6b64dc6a2"},
+        {"Name": "Panini Deal (Grilled/Mushroom)", "Price": 180, "Image": "https://images.unsplash.com/photo-1528735602780-2552fd46c7af"},
+        {"Name": "Nawabi Burger", "Price": 350, "Image": "https://images.unsplash.com/photo-1568901346375-23c9450c58cd"},
+        {"Name": "Zinger Burger", "Price": 380, "Image": "https://images.unsplash.com/photo-1586190848861-99aa4a171e90"},
+        {"Name": "Tower Burger", "Price": 480, "Image": "https://images.unsplash.com/photo-1550547660-d9450f859349"},
+        {"Name": "Club Sandwich", "Price": 350, "Image": "https://images.unsplash.com/photo-1528735602780-2552fd46c7af"},
+        {"Name": "Large Family Pizza", "Price": 1500, "Image": "https://images.unsplash.com/photo-1513104890138-7c749659a591"},
+        {"Name": "French Fries (Masala/Large)", "Price": 200, "Image": "https://images.unsplash.com/photo-1576107232684-1279f3908591"},
+        {"Name": "Chicken Garlic Mayo Roll", "Price": 250, "Image": "https://images.unsplash.com/photo-1626777552726-4a6b54c97e46"},
+        {"Name": "Cold Drink (1.5 Litre)", "Price": 200, "Image": "https://images.unsplash.com/photo-1622483767028-3f66f32aef97"}
     ]
 
 @app.route("/webhook", methods=["GET"])
@@ -56,6 +59,23 @@ def send_whatsapp_message(recipient, text):
         "to": recipient,
         "type": "text",
         "text": {"body": text}
+    }
+    requests.post(url, headers=headers, json=payload)
+
+def send_whatsapp_image(recipient, image_url, caption):
+    url = f"https://graph.facebook.com/v17.0/{PHONE_NUMBER_ID}/messages"
+    headers = {
+        "Authorization": f"Bearer {WHATSAPP_TOKEN}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": recipient,
+        "type": "image",
+        "image": {
+            "link": image_url,
+            "caption": caption
+        }
     }
     requests.post(url, headers=headers, json=payload)
 
@@ -90,28 +110,43 @@ def webhook():
             step = user["step"]
             menu_items = get_menu_from_sheet()
 
+            # 1. Welcome & Menu Handler with Banner Image
             if "menu" in msg_body or "hi" in msg_body or "hello" in msg_body or "start" in msg_body:
                 user["step"] = "ordering"
                 user["pending_matches"] = []
-                menu_text = "🌟 *Welcome to Royal Spice Fast Food!* 🌟\n\nYeh raha hamara complete menu:\n"
+                
+                menu_text = "🍔 *Welcome to Almaida Fried!* 🍟\n_Maza Kuch Khas Hai_ ✨\n\nYeh raha hamara lazeez menu:\n"
                 for idx, item in enumerate(menu_items, 1):
                     name = item.get("Name", "Item")
                     price = item.get("Price", 0)
                     menu_text += f"{idx}️⃣ *{name}* - Rs. {price}\n"
                 
-                menu_text += "\nAapko kya order karna hai? Item ka naam ya number likh kar bhejein!"
-                send_whatsapp_message(sender_phone, menu_text)
+                menu_text += "\nAapko kya order karna hai? Pyar se item ka naam ya number likh kar bhejein! ❤️"
+                
+                # Send Banner Image with Menu Text
+                send_whatsapp_image(sender_phone, "https://images.unsplash.com/photo-1504674900247-0877df9cc836", menu_text)
                 return jsonify({"status": "success"}), 200
 
+            # 2. Checkout / Done Trigger with Smart Upsell Option
             if "done" in msg_body or "checkout" in msg_body or "order complete" in msg_body:
                 if not user["cart"]:
-                    send_whatsapp_message(sender_phone, "Aapne abhi tak kuch select nahi kiya! Pehle menu se item chunein.")
+                    send_whatsapp_message(sender_phone, "Aapne abhi tak kuch select nahi kiya! Pehle menu se pyari si cheez chunein. 😊")
                     return jsonify({"status": "success"}), 200
                 
-                user["step"] = "get_name"
-                send_whatsapp_message(sender_phone, "Zabardast! 🛒 Aapka bill tayar hai.\nAb apna *Pura Naam* likh kar bhejein:")
-                return jsonify({"status": "success"}), 200
+                # Smart Upsell Option before final details
+                if step != "upsell_offered":
+                    user["step"] = "upsell_offered"
+                    send_whatsapp_message(sender_phone, "🍟 *Ek choti si recommendation:* Kya iske sath Mazedar Masala Fries ya thandi Cold Drink add karwana chahenge, ya itna kafi hai? \n\n(Mazeed add karwana ho toh item likhein, warna *'No'* ya *'Final'* likhein)")
+                    return jsonify({"status": "success"}), 200
 
+            if step == "upsell_offered":
+                if "no" in msg_body or "final" in msg_body or "nahi" in msg_body or "itna kafi" in msg_body:
+                    user["step"] = "get_name"
+                    send_whatsapp_message(sender_phone, "Zabardast! 🛒 Aapka lazeez bill tayar hai.\nAb apna *Pura Naam* pyare se andaz mein likh kar bhejein:")
+                    return jsonify({"status": "success"}), 200
+                # If they typed something else during upsell, treat it as a new item to add!
+
+            # 3. Handling Multi-Match Sub-categories Selection
             if step == "select_from_matches":
                 matches = user["pending_matches"]
                 if msg_body.isdigit() and 1 <= int(msg_body) <= len(matches):
@@ -119,50 +154,31 @@ def webhook():
                     user["pending_matches"] = []
                     item_name = selected.get("Name")
                     item_price = int(selected.get("Price", 0))
-
-                    if "pizza" in item_name.lower():
-                        user["temp_item"] = selected
-                        user["step"] = "pizza_topping"
-                        send_whatsapp_message(sender_phone, f"🍕 *{item_name}* select kiya hai! Kya aap extra toppings chahte hain?\n\n1️⃣ Extra Cheese (+Rs. 100)\n2️⃣ Extra Chicken (+Rs. 150)\n3️⃣ Dono (Cheese + Chicken) (+Rs. 250)\n4️⃣ Nahi, Normal hi theek hai\n\nNumber likh kar bhejein:")
-                        return jsonify({"status": "success"}), 200
+                    item_img = selected.get("Image", "")
 
                     user["cart"].append(item_name)
                     user["total"] += item_price
                     user["step"] = "ordering"
 
                     cart_summary = "\n".join([f"• {i}" for i in user["cart"]])
-                    send_whatsapp_message(sender_phone, f"✅ *{item_name}* cart mein shamil ho gaya!\n\n🛒 *Cart:*\n{cart_summary}\n\n💰 *Total Bill:* Rs. {user['total']}\n\nMazeed kuch add karwana hai? (Item likhein ya *'Done'* likhein)")
+                    response_text = (
+                        f"✅ *{item_name}* aapke cart mein shamil ho gaya! 🎉\n\n"
+                        f"🛒 *Aapka Cart:*\n{cart_summary}\n\n"
+                        f"💰 *Total Bill:* Rs. {user['total']}\n\n"
+                        f"Kuch aur khane ka dil hai? Item ka naam likhein ya *'Done'* likhein."
+                    )
+                    
+                    if item_img:
+                        send_whatsapp_image(sender_phone, item_img, response_text)
+                    else:
+                        send_whatsapp_message(sender_phone, response_text)
                     return jsonify({"status": "success"}), 200
                 else:
                     send_whatsapp_message(sender_phone, "Baraye meharbani di gayi list mein se sahi number select karein:")
                     return jsonify({"status": "success"}), 200
 
-            if step == "pizza_topping":
-                if msg_body in ["1", "2", "3", "4"]:
-                    pizza_item = user["temp_item"]
-                    extra_name, extra_price = "", 0
-                    if msg_body == "1":
-                        extra_name, extra_price = " + Extra Cheese", 100
-                    elif msg_body == "2":
-                        extra_name, extra_price = " + Extra Chicken", 150
-                    elif msg_body == "3":
-                        extra_name, extra_price = " + Extra Cheese & Chicken", 250
-                    
-                    final_name = pizza_item["Name"] + extra_name
-                    final_price = int(pizza_item["Price"]) + extra_price
-
-                    user["cart"].append(final_name)
-                    user["total"] += final_price
-                    user["step"] = "ordering"
-                    user["temp_item"] = None
-
-                    cart_summary = "\n".join([f"• {i}" for i in user["cart"]])
-                    send_whatsapp_message(sender_phone, f"🍕 *{final_name}* add ho gaya!\n\n🛒 *Cart:*\n{cart_summary}\n\n💰 *Total:* Rs. {user['total']}\n\nMazeed kuch add karna hai? (Item likhein ya *'Done'* likhein)")
-                    return jsonify({"status": "success"}), 200
-                else:
-                    user["step"] = "ordering"
-
-            if step == "ordering" or step == "pizza_topping":
+            # 4. Smart Single-Word / Sub-category Matcher
+            if step == "ordering" or step == "upsell_offered":
                 matched_item = None
                 if msg_body.isdigit():
                     idx = int(msg_body)
@@ -179,54 +195,58 @@ def webhook():
                     if len(found_matches) == 1:
                         matched_item = found_matches[0]
                     elif len(found_matches) > 1:
+                        # Multiple matches found! Ask user to choose sub-category/specific item
                         user["pending_matches"] = found_matches
                         user["step"] = "select_from_matches"
-                        match_text = f"🔍 '*{msg_body}*' se miltay jultay yeh options hain, batayein konsa chahiye:\n"
+                        match_text = f"🔍 '*{msg_body}*' se miltay jultay yeh lazeez options hain, batayein konsa pasand hai:\n"
                         for idx, m in enumerate(found_matches, 1):
                             match_text += f"{idx}️⃣ {m.get('Name')} - Rs. {m.get('Price')}\n"
-                        match_text += "\nNumber likh kar bhejein:"
+                        match_text += "\nNumber select kar ke bhejein:"
                         send_whatsapp_message(sender_phone, match_text)
                         return jsonify({"status": "success"}), 200
 
                 if matched_item:
                     item_name = matched_item.get("Name")
                     item_price = int(matched_item.get("Price", 0))
-
-                    if "pizza" in item_name.lower():
-                        user["temp_item"] = matched_item
-                        user["step"] = "pizza_topping"
-                        send_whatsapp_message(sender_phone, f"🍕 *{item_name}* select kiya hai! Kya aap extra toppings chahte hain?\n\n1️⃣ Extra Cheese (+Rs. 100)\n2️⃣ Extra Chicken (+Rs. 150)\n3️⃣ Dono (Cheese + Chicken) (+Rs. 250)\n4️⃣ Nahi, Normal hi theek hai\n\nNumber likh kar bhejein:")
-                        return jsonify({"status": "success"}), 200
+                    item_img = matched_item.get("Image", "")
 
                     user["cart"].append(item_name)
                     user["total"] += item_price
+                    user["step"] = "ordering"
 
                     cart_summary = "\n".join([f"• {i}" for i in user["cart"]])
                     response_text = (
-                        f"✅ *{item_name}* cart mein shamil ho gaya!\n\n"
+                        f"😋 *{item_name}* add ho gaya!\n\n"
                         f"🛒 *Aapka Cart:*\n{cart_summary}\n\n"
                         f"💰 *Total Bill:* Rs. {user['total']}\n\n"
-                        f"Kya aap kuch aur add karwana chahte hain? (Mazeed item ka naam likhein ya order khatam karne ke liye *'Done'* likhein)"
+                        f"Mazeed kuch add karwana hai? (Item ka naam likhein ya *'Done'* likhein)"
                     )
-                    send_whatsapp_message(sender_phone, response_text)
+                    
+                    if item_img:
+                        send_whatsapp_image(sender_phone, item_img, response_text)
+                    else:
+                        send_whatsapp_message(sender_phone, response_text)
                 else:
-                    send_whatsapp_message(sender_phone, "Bhai samajh nahi aaya! Baraye meharbani menu se sahi item number likhein ya *'Done'* likhein.")
+                    send_whatsapp_message(sender_phone, "Bhai jaan yeh samajh nahi aaya! Baraye meharbani menu se sahi item name likhein ya *'Done'* likhein.")
 
+            # 5. Customer Name Collection
             elif step == "get_name":
                 user["name"] = msg_body.title()
                 user["step"] = "get_address"
-                send_whatsapp_message(sender_phone, f"Shukriya {user['name']}! 😊\nAb apna *Delivery Address* type kar ke bhej dein (ya location share kar dein).")
+                send_whatsapp_message(sender_phone, f"Bohat shukriya {user['name']} ji! ❤️\nAb apna pyara sa *Delivery Address* type kar ke bhej dein (ya apni *Live Location* share kar dein).")
 
+            # 6. Final Address & Instant Owner Alert Dispatch
             elif step == "get_address":
                 user["address"] = msg_body.title()
                 cart_summary = ", ".join(user["cart"])
                 
-                confirmation_msg = "🎉 *Order Confirmed!* 🎉\n\nAapka order successfully book ho gaya hai aur restaurant manager ko foran bhej diya gaya hai! Jald khana dispatch ho jaye ga."
+                # Customer Sweet Confirmation Message
+                confirmation_msg = "🎉 *Order Confirmed!* 🎉\n\nAapka order successfully book ho gaya hai aur kitchen mein chef ko bhej diya gaya hai! Garam garam khana jald aapke darwaze par hoga. Enjoy! 🍔✨"
                 send_whatsapp_message(sender_phone, confirmation_msg)
 
-                # Admin/Owner Alert with full details
+                # Instant Manager/Owner Alert with Full Details & Location
                 owner_alert = (
-                    f"🚨 *URGENT: Naya Order Restaurant Par Aaya Hai!* 🚨\n\n"
+                    f"🚨 *URGENT: Almaida Fried Par Naya Order Aaya Hai!* 🚨\n\n"
                     f"👤 *Customer Name:* {user['name']}\n"
                     f"📱 *Phone Number:* {sender_phone}\n"
                     f"🛒 *Ordered Items:* {cart_summary}\n"
@@ -236,6 +256,7 @@ def webhook():
                 )
                 send_whatsapp_message(OWNER_PHONE, owner_alert)
 
+                # Reset Session
                 user_sessions[sender_phone] = {"step": "menu", "cart": [], "total": 0, "name": "", "address": "", "temp_item": None, "pending_matches": []}
 
     except Exception as e:
