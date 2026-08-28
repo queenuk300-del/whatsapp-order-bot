@@ -211,7 +211,7 @@ def webhook():
                 send_whatsapp_image(sender_phone, "https://images.unsplash.com/photo-1504674900247-0877df9cc836", menu_text)
                 return jsonify({"status": "success"}), 200
 
-            # 6. Fuzzy Match Confirmation Handler (e.g. User wrote "peza" -> Bot asked "Kya aapka matlab Pizza hai? (Yes/No)")
+            # 6. Fuzzy Match Confirmation Handler (e.g. peza -> Pizza)
             if user["pending_fuzzy_item"]:
                 matched_item = user["pending_fuzzy_item"]
                 if msg_body in ["yes", "haan", "y", "ji", "han", "ok", "yup"]:
@@ -362,4 +362,5 @@ def webhook():
                     elif len(found_matches) > 1:
                         user["pending_matches"] = found_matches
                         user["step"] = "select_from_matches"
-                        match_text = f"🔍 '*{clean_query}*' se miltay jultay yeh lazeez options hain, batayein konsa pasand ha
+                        match_text = "🔍 '{}' se miltay jultay yeh lazeez options hain, batayein konsa pasand hai:\n".format(clean_query)
+                        for idx, m in enumer
