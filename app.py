@@ -14,7 +14,7 @@ OWNER_PHONE = os.environ.get("OWNER_PHONE", "923046763002")
 SHEET_NAME = os.environ.get("SHEET_NAME", "RestaurantMenu")
 
 # Gemini API Key Setup
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", ")
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 genai.configure(api_key=GEMINI_API_KEY)
 
 user_sessions = {}
