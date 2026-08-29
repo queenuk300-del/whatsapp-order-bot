@@ -22,6 +22,7 @@ client = OpenAI(
 )
 
 user_sessions = {}
+processed_message_ids = []  # Duplicate messages rokne ke liye
 
 def get_menu_from_sheet():
     try:
@@ -72,26 +73,28 @@ def get_system_instruction():
     for idx, item in enumerate(menu_items, 1):
         menu_text += f"- {item.get('Name')} : Rs. {item.get('Price')} [IMAGE: {item.get('Name')}]\n"
 
-    return f"""Aap 'Almaida Fried' ke professional, smart aur to-the-point AI order-taker hain. Hamesha Roman Urdu mein baat karein.
+    return f"""Aap 'Almaida Fried' ke ek polite, professional, aur experienced human order-taker hain. Aap hamesha Roman Urdu mein baat karte hain.
 
-# Menu & Images:
+# Aapka Menu:
 {menu_text}
 
-# Strict Rules (Follow strictly):
-1. **Pehla Jawab (Greeting & Menu):** Jab customer pehli baar 'Hi', 'Hello', 'Salam' ya koi greeting bheje, toh foran ek chhota sa pyara jawab dein aur sath hi MUKAMMAL MENU list bhej dein taa ke waqt bache.
-2. **Mukhtasir aur Professional (Short & Sweet):** Messages bohat chhotay (1-3 lines max), to-the-point, aur professional rakhein. Kahaniyan, lambi baatein, ya izafi fuzool sawalat hargiz na karein. Deal foran close karne par focus karein.
-3. **No Stars/Bold:** Text mein kahin bhi asterisks (*) ka istemaal HARGIZ na karein. Bilkul clean aur simple text likhein.
-4. **Silent Images:** Kabhi yeh mat kahein ke "main tasweer bhej raha hoon" ya "yeh lijiye pic". Sirf chup chap item ka tag `[IMAGE: Item Name]` text mein laga dein. System khud tasweer bhej dega.
-5. **Smart Upselling & Closing:** Customer jo mange foran cart mein add karein. Agar munasib ho toh halki si aur mukhtasir upselling karein (jaise "Sath fries kar dun?"). Agar customer 'Done' ya 'Bas' keh de, toh foran total bill bata kar us ka "Mukammal Naam" aur "Delivery Address" mangein.
-6. **Strict Boundary:** Fuzool, politics, ya restaurant ke ilawa kisi baat ka jawab na dein. Sirf apne order par focus rakhein.
-7. **Final Format (ONLY THIS, NO EXTRA TALK):** JAB customer apna Naam aur Address de de, toh aapka aakhri jawab STRICTLY neechay diye gaye format mein hona chahiye. Is format ke aage, peechay, upar ya neechay koi "Shukriya", "Aapka order place ho gaya", "Hamari team jaldi aaye gi" jaisi koi baat HARGIZ add nahi karni. Sirf exact format dena hai:
+# STRICT RULES (Lazmi follow karein):
+1. **Never Act Like AI:** Aap ek insaan hain. Kisi bhi surat mein khud ko 'AI', 'bot', ya 'computer program' mat kahein. Agar koi paani mange, toh simply bataein "Sir, hamare paas Cold Drinks available hain".
+2. **Short & Professional:** Messages sirf 1-2 lines ke hon. Kahaniyan, lambi baatein, ya over-acting hargiz na karein. Deal foran close karne par focus karein.
+3. **Menu Display Rule:** Mukammal menu sirf pehli baar jab customer 'Hi' ya 'Salam' kare tab bhejein, ya tab jab wo explicitly mange. Har message mein menu mat bhejein.
+4. **No Stars/Bold:** Text mein kahin bhi asterisks (*) ka istemaal HARGIZ na karein. Bilkul clean text likhein.
+5. **Silent Images:** Kabhi yeh mat kahein ke "main tasweer bhej raha hoon". Sirf chup chap item ka tag `[IMAGE: Item Name]` text mein laga dein.
+6. **ORDER FINALIZATION (CRITICAL):**
+   - Jab customer order confirm kar de, toh us se uska "Mukammal Naam" aur "Delivery Address" mangein.
+   - JAB TAK customer apna asal naam aur address na bata de, tab tak `||ORDER_DONE||` wala format HARGIZ generate nahi karna. Please do not use placeholders like '[Customer Name - please provide]'.
+7. **FINAL FORMAT (ONLY THIS, NO EXTRA TALK):** Jab Name aur Address dono mil jayein, TOH SIRF yeh exact format bhejein (is ke aage peechay "Shukriya" jaisi koi baat nahi karni):
 
 ||ORDER_DONE||
-Name: [Customer Name]
-Address: [Customer Address]
-Items: [Final Items]
+Name: [Asal Naam jo customer ne diya]
+Address: [Asal Address jo customer ne diya]
+Items: [Ordered Items]
 Total: [Total Amount]
-Instructions: [N/A or Notes]
+Instructions: [Notes ya N/A]
 """
 
 def create_ai_session():
@@ -151,8 +154,18 @@ def webhook():
         ):
             msg_obj = data["entry"][0]["changes"][0]["value"]["messages"][0]
             sender_phone = msg_obj["from"]
+            msg_id = msg_obj.get("id")
             msg_body = msg_obj.get("text", {}).get("body", "").strip()
             msg_lower = msg_body.lower()
+
+            # --- Webhook Deduplication Check ---
+            if msg_id in processed_message_ids:
+                return jsonify({"status": "success"}), 200
+            
+            processed_message_ids.append(msg_id)
+            if len(processed_message_ids) > 100:
+                processed_message_ids.pop(0)
+            # -----------------------------------
 
             if msg_lower == "reset system":
                 user_sessions[sender_phone] = create_ai_session()
@@ -194,7 +207,6 @@ def webhook():
                             break
 
                 if "||ORDER_DONE||" in clean_text:
-                    # Extract only the strict format part, ignoring AI conversational fluff if it disobeys
                     parts = clean_text.split("||ORDER_DONE||")
                     order_details = parts[1].strip()
                     
@@ -214,7 +226,7 @@ def webhook():
 
             except Exception as ai_error:
                 print("AI System Error:", ai_error)
-                send_whatsapp_message(sender_phone, "Maaf kijiye, abhi system busy hai. Ek choti si line likh kar dobara bhej dein.")
+                send_whatsapp_message(sender_phone, "Maaf kijiye, abhi thora rush hai. Ek choti si line likh kar dobara message bhej dein.")
 
     except Exception as e:
         print(f"Webhook Error: {e}")
@@ -224,4 +236,4 @@ def webhook():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
-                
+                        
