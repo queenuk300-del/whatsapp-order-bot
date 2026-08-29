@@ -23,7 +23,7 @@ client = OpenAI(
 )
 
 user_sessions = {}
-processed_message_ids = []  # Duplicate messages rokne ke liye
+processed_message_ids = []
 
 def get_menu_from_sheet():
     try:
@@ -80,16 +80,15 @@ def get_system_instruction():
 {menu_text}
 
 # STRICT RULES (Lazmi follow karein):
-1. **Identity & Professionalism:** Aap koi insaan nahi hain. Agar koi aapka naam, umer, ya personal baat pooche toh strictly sirf yeh kahein: "Main Almaida Fried ka AI Virtual Order Taker hoon. Main sirf order lenay mein aapki madad kar sakta hoon."
-2. **No Slang (Tameez ka Daira):** 'Jaani', 'Bhai', 'Yaar', 'Dear' jaisay gher-rasmi (informal) alfaz HARGIZ istemaal na karein. Sirf "Sir", "Ma'am", ya "Aap" keh kar mukhatib karein.
-3. **Pehla Jawab (Greeting + Menu):** Jab customer pehli baar 'Hi' ya 'Salam' bheje, toh foran ek chhota salam kar ke MUKAMMAL MENU bhej dein. 
-4. **Short & To-The-Point:** Aap ke messages sirf 1 ya 2 lines ke hone chahiye. Koi kahani, over-acting, ya izafi baatein hargiz na karein. Sirf order lene par focus karein.
-5. **Upselling & Dealing:** Order finalize karte waqt narmi se ek dafa munasib cheez (jaise fries ya drink) suggest karein. Agar wo mana kar de, toh behes na karein aur foran "Mukammal Naam" aur "Delivery Address" mangein.
-6. **No Stars/Bold:** Text mein kahin bhi asterisks (*) ka istemaal hargiz na karein.
-7. **Silent Images:** Kabhi yeh mat kahein ke "main tasweer bhej raha hoon". Sirf text mein chup chap `[IMAGE: Item Name]` laga dein.
-8. **ORDER FINALIZATION (CRITICAL):**
-   - JAB TAK customer apna asal naam aur address type kar ke na bata de, tab tak `||ORDER_DONE||` wala format generate HARGIZ nahi karna.
-9. **FINAL FORMAT (ONLY THIS, NO EXTRA TALK):** Jab Name aur Address dono mil jayein, TOH SIRF yeh exact format bhejein. Is ke aage peechay "Shukriya" ya koi bhi aur lafz add nahi karna:
+1. **Identity & Professionalism:** Main Almaida Fried ka AI Virtual Order Taker hoon.
+2. **No Slang:** 'Jaani', 'Bhai', 'Yaar' HARGIZ istemaal na karein. Sirf "Sir/Ma'am" kahein.
+3. **Out-of-Menu & Smart Suggestions:** Agar customer aisi cheez mange jo menu mein NAHI hai, toh politely maazrat karein. AGAR us se milti julti koi cheez menu mein hai (jaise paani ki jagah Cold Drink, ya kisi aur burger ki jagah Zinger Burger), toh foran option dein: "Maaf kijiye, wo toh available nahi hai, lekin hamare paas [Alternative Item] hai. Kya main wo order mein shamil kar dun?".
+4. **Always Reply & Off-Topic Handling:** Customer ke HAR message ka jawab dena lazmi hai. Agar customer aisi baat kare jo khane ya order se bilkul relate nahi karti (jaise siyasat, fuzool sawalat), toh professional andaz mein baat ghumain: "Maaf kijiye, main sirf Almaida Fried ke orders lene mein madad kar sakta hoon. Kya main aapko menu dikhaun?"
+5. **NO SYSTEM CODES:** Aapke response mein 'User Safety', 'Response Safety' ya system metadata HARGIZ nahi hona chahiye.
+6. **Short & To-The-Point:** Aap ke messages sirf 1 ya 2 lines ke hon.
+7. **No Stars/Bold:** Text mein kahin bhi asterisks (*) HARGIZ na lagayein.
+8. **Silent Images:** Tasweer bhejte waqt sirf `[IMAGE: Item Name]` lagayein, text mein tasweer bhejne ka zikr na karein.
+9. **FINAL FORMAT (ONLY THIS, NO EXTRA TALK):** Jab customer Apna Name aur Address de de, TOH SIRF yeh exact format bhejein (koi shukriya ya extra text add na karein):
 
 ||ORDER_DONE||
 Name: [Asal Naam]
@@ -142,7 +141,6 @@ def send_whatsapp_image(recipient, image_url, caption=""):
     }
     requests.post(url, headers=headers, json=payload)
 
-# Yeh function background thread mein chale ga taa ke webhook timeout na ho
 def process_ai_response(sender_phone, msg_body):
     try:
         user_sessions[sender_phone].append({"role": "user", "content": msg_body})
@@ -153,10 +151,17 @@ def process_ai_response(sender_phone, msg_body):
         )
         
         ai_reply = response.choices[0].message.content
-        user_sessions[sender_phone].append({"role": "assistant", "content": ai_reply})
+        
+        # --- TEXT CLEANER (For OpenRouter Safety Glitches) ---
+        ai_reply = re.sub(r'User Safety:.*?\n|Response Safety:.*?\n?', '', ai_reply, flags=re.IGNORECASE)
+        ai_reply = ai_reply.replace("*", "").strip()
 
-        # Hard clean of any asterisks
-        ai_reply = ai_reply.replace("*", "")
+        # Fallback if the whole message was just safety tags
+        if not ai_reply:
+            ai_reply = "Maaf kijiye, main aapki baat theek se samajh nahi paya. Kya main aapko humara menu dikhaun?"
+        # -----------------------------------------------------
+
+        user_sessions[sender_phone].append({"role": "assistant", "content": ai_reply})
 
         image_tags = re.findall(r'\[IMAGE:\s*(.*?)\]', ai_reply, flags=re.IGNORECASE)
         clean_text = re.sub(r'\[IMAGE:\s*.*?\]', '', ai_reply, flags=re.IGNORECASE).strip()
@@ -190,8 +195,7 @@ def process_ai_response(sender_phone, msg_body):
 
     except Exception as ai_error:
         print("AI System Error:", ai_error)
-        send_whatsapp_message(sender_phone, "Maaf kijiye ga, internet connection thora slow hai. Ek bar phir se message bhej dein please.")
-
+        send_whatsapp_message(sender_phone, "Maaf kijiye ga, system mein thora masla hai. Kya aap apna order dobara likh sakte hain?")
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
@@ -211,14 +215,12 @@ def webhook():
             msg_body = msg_obj.get("text", {}).get("body", "").strip()
             msg_lower = msg_body.lower()
 
-            # --- Webhook Deduplication Check ---
             if msg_id in processed_message_ids:
                 return jsonify({"status": "success"}), 200
             
             processed_message_ids.append(msg_id)
             if len(processed_message_ids) > 100:
                 processed_message_ids.pop(0)
-            # -----------------------------------
 
             if msg_lower == "reset system":
                 user_sessions[sender_phone] = create_ai_session()
@@ -233,7 +235,6 @@ def webhook():
                 send_whatsapp_message(sender_phone, "Aapka order cancel kar diya gaya hai. Naya order shuru karne ke liye 'Hi' likhein.")
                 return jsonify({"status": "success"}), 200
 
-            # --- Start Background Threading ---
             thread = threading.Thread(target=process_ai_response, args=(sender_phone, msg_body))
             thread.start()
 
@@ -247,4 +248,4 @@ def webhook():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
-    
+            
