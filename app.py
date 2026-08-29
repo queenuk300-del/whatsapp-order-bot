@@ -28,7 +28,7 @@ client = OpenAI(
 user_sessions = {}
 processed_message_ids = []
 
-# --- Google Sheets Functions (Safe Mode & 30-Min Lock) ---
+# --- Google Sheets Functions ---
 def get_sheet(tab_name):
     try:
         gc = gspread.service_account(filename='/etc/secrets/credentials.json')
@@ -46,16 +46,13 @@ def get_menu_from_sheet():
             if records:
                 return records
     except Exception as e:
-        pass
+        print("Menu Error:", e)
     
     return [
         {"Name": "Zinger Deal (4 Burgers + 4 Drinks)", "Price": 950, "Image": "https://images.unsplash.com/photo-1561758033-d89a9ad46330"},
         {"Name": "Couple Deal (2 Zinger + 2 Drinks)", "Price": 550, "Image": "https://images.unsplash.com/photo-1550547660-d9450f859349"},
         {"Name": "Family Pizza Deal (1 Large Pizza + 1.5L Drink)", "Price": 1600, "Image": "https://images.unsplash.com/photo-1513104890138-7c749659a591"},
         {"Name": "Zinger Burger", "Price": 380, "Image": "https://images.unsplash.com/photo-1586190848861-99aa4a171e90"},
-        {"Name": "Mighty Zinger Burger", "Price": 550, "Image": "https://images.unsplash.com/photo-1568901346375-23c9450c58cd"},
-        {"Name": "Small Pizza", "Price": 500, "Image": "https://images.unsplash.com/photo-1590947132387-155cc02f3212"},
-        {"Name": "Large Family Pizza", "Price": 1500, "Image": "https://images.unsplash.com/photo-1513104890138-7c749659a591"},
         {"Name": "Cold Drink (Regular/Can)", "Price": 100, "Image": "https://images.unsplash.com/photo-1622483767028-3f66f32aef97"}
     ]
 
@@ -67,7 +64,7 @@ def get_customer_profile(phone):
             for row in records:
                 if str(row.get("Phone")) == str(phone):
                     return {"name": row.get("Name"), "address": row.get("Address")}
-    except Exception as e:
+    except Exception:
         pass
     return None
 
@@ -86,7 +83,7 @@ def save_customer_profile(phone, name, address):
                 worksheet.update_acell(f'C{row_idx}', address)
             else:
                 worksheet.append_row([str(phone), name, address])
-    except Exception as e:
+    except Exception:
         pass
 
 def save_order_to_sheet(order_id, phone, details, status="active"):
@@ -95,7 +92,7 @@ def save_order_to_sheet(order_id, phone, details, status="active"):
         if worksheet:
             current_time = int(time.time())
             worksheet.append_row([order_id, str(phone), current_time, details, status])
-    except Exception as e:
+    except Exception:
         pass
 
 def get_recent_order(phone):
@@ -112,9 +109,9 @@ def get_recent_order(phone):
             
             if recent_order:
                 elapsed_time = int(time.time()) - int(recent_order.get("Time", 0))
-                if elapsed_time <= 1800: # 30 Minutes Lock
+                if elapsed_time <= 1800: # 30 mins lock
                     return {"order_id": recent_order.get("OrderID"), "details": recent_order.get("Details"), "row": row_idx}
-    except Exception as e:
+    except Exception:
         pass
     return None
 
@@ -125,49 +122,43 @@ def update_order_status(row_idx, new_status, new_details=None):
             worksheet.update_acell(f'E{row_idx}', new_status)
             if new_details:
                  worksheet.update_acell(f'D{row_idx}', new_details)
-    except Exception as e:
+    except Exception:
         pass
 
-# --- Dynamic AI Instructions (Real-Time Memory) ---
+# --- AI Instructions ---
 def get_system_instruction(sender_phone):
     menu_items = get_menu_from_sheet()
     menu_text = ""
     for idx, item in enumerate(menu_items, 1):
-        menu_text += f"- {item.get('Name')} : Rs. {item.get('Price')} [IMAGE: {item.get('Name')}]\n"
+        menu_text += f"- {item.get('Name')} : Rs. {item.get('Price')}\n"
 
     memory_context = ""
     cust_profile = get_customer_profile(sender_phone)
     if cust_profile:
-        memory_context += f"\n# CUSTOMER PROFILE:\nName: {cust_profile['name']}\nAddress: {cust_profile['address']}\n(Agar customer naya order kare toh poocho purane address pe bhejna hai?)\n"
+        memory_context += f"\n# CUSTOMER PROFILE:\nName: {cust_profile['name']}\nAddress: {cust_profile['address']}\n"
     
     recent_order = get_recent_order(sender_phone)
-    
     if recent_order:
-        # ACTIVE ORDER STATE (30 MIN LOCK)
         state_rules = f"""
 # ACTIVE ORDER LOCK (30 Mins):
-Customer ka pehle se ek order active hai.
+Customer ka active order mojood hai.
 Order ID: {recent_order['order_id']}
 Current Items: {recent_order['details']}
 
-# STRICT RULES FOR ACTIVE ORDER:
-1. Aap kisi bhi surat mein naya order nahi banayenge. `||ORDER_DONE||` use karna SAKHT MANA hai.
-2. Agar customer aur cheezein add karwaye ya change kare, toh SIRF `||ORDER_MODIFY||` use karein aur Items list mein purani + nayi dono cheezein shamil karein.
-3. Agar customer kahe "cancel kar do", toh `||ORDER_CANCEL||` use karein.
-4. Agar customer aam baat kare (jaise "jaldi bhej do", "thank you", "kahan hai order"), toh NORMAL CHAT karein BINA kisi tag ke.
+RULES:
+1. Naya order mat banao (`||ORDER_DONE||` use na karo).
+2. Agar customer cheezein add karwaye, toh SIRF `||ORDER_MODIFY||` use karo aur purani + nayi items likho.
+3. Aam baat par normal jawab do bina kisi tag ke.
 """
     else:
-        # NO ACTIVE ORDER STATE
         state_rules = """
 # NO ACTIVE ORDER:
-Customer ka is waqt koi active order nahi hai.
-1. Jab customer naya order final kar le aur apna Name aur Address de de, TOH SIRF is format mein jawab dein:
+Jab order final ho jaye aur Name/Address mil jaye, TOH SIRF yeh format do:
 ||ORDER_DONE||
 Name: [Asal Naam]
 Address: [Asal Address]
 Items: [Ordered Items]
 Total: [Total Amount]
-2. Is tag k ilawa koi modify ya cancel tag use na karein jab tak order na ho.
 """
 
     return f"""Aap 'Almaida Fried' ke professional AI Virtual Order Taker hain. Sirf Pakistani Roman Urdu mein mukhtasir baat karte hain.
@@ -178,16 +169,13 @@ Total: [Total Amount]
 {state_rules}
 
 # GENERAL RULES:
-1. **Identity:** Main Almaida Fried ka AI Virtual Order Taker hoon. Hindi alfaz (jaise 'havaal', 'swagat', 'jaani') HARGIZ istemaal na karein. Sirf "Assalam o Alaikum", "Sir/Ma'am" kahein.
-2. **Short & Professional:** Messages 1-2 lines ke hon. No kahani.
-3. **No Stars/Bold:** Text mein asterisks (*) HARGIZ na lagayein.
-4. **Silent Images:** Tasweer bhejte waqt sirf `[IMAGE: Item Name]` lagayein, text mein na bolen.
+1. Identity: Main Almaida Fried ka AI Virtual Order Taker hoon. Hindi alfaz (jaise 'havaal', 'swagat') use na karo. Sirf "Sir/Ma'am" ya "Aap" kaho.
+2. Messages 1-2 lines ke hon. No kahani. No stars/asterisks (*).
 """
 
 def create_ai_session(sender_phone):
     return [{"role": "system", "content": get_system_instruction(sender_phone)}]
 
-# --- WhatsApp API Functions ---
 @app.route("/webhook", methods=["GET"])
 def verify_webhook():
     mode = request.args.get("hub.mode")
@@ -209,31 +197,15 @@ def send_whatsapp_message(recipient, text):
         "type": "text",
         "text": {"body": text}
     }
-    response = requests.post(url, headers=headers, json=payload)
-    if response.status_code != 200:
-        print("🚨 WhatsApp Message Send Error:", response.text)
+    try:
+        response = requests.post(url, headers=headers, json=payload)
+        if response.status_code != 200:
+            print("WhatsApp Error:", response.text)
+    except Exception as e:
+        print("WhatsApp Send Exception:", e)
 
-def send_whatsapp_image(recipient, image_url, caption=""):
-    url = f"https://graph.facebook.com/v17.0/{PHONE_NUMBER_ID}/messages"
-    headers = {
-        "Authorization": f"Bearer {WHATSAPP_TOKEN}",
-        "Content-Type": "application/json",
-    }
-    payload = {
-        "messaging_product": "whatsapp",
-        "to": recipient,
-        "type": "image",
-        "image": {
-            "link": image_url,
-            "caption": caption
-        }
-    }
-    requests.post(url, headers=headers, json=payload)
-
-# --- Main Processing Logic ---
 def process_ai_response(sender_phone, msg_body):
     try:
-        # Dynamically refresh the system prompt every time to ensure 30-min lock is up to date
         if sender_phone not in user_sessions:
             user_sessions[sender_phone] = create_ai_session(sender_phone)
         else:
@@ -243,7 +215,8 @@ def process_ai_response(sender_phone, msg_body):
 
         response = client.chat.completions.create(
             model="openrouter/free",
-            messages=user_sessions[sender_phone]
+            messages=user_sessions[sender_phone],
+            max_tokens=400
         )
         
         ai_reply = response.choices[0].message.content
@@ -251,26 +224,14 @@ def process_ai_response(sender_phone, msg_body):
         ai_reply = ai_reply.replace("*", "").strip()
 
         if not ai_reply:
-            ai_reply = "Maaf kijiye, main aapki baat samajh nahi paya. Kya aap apna message dobara likhenge?"
+            ai_reply = "Ji Sir, batayein main mazeed kya madad kar sakta hoon?"
 
         user_sessions[sender_phone].append({"role": "assistant", "content": ai_reply})
-
-        image_tags = re.findall(r'\[IMAGE:\s*(.*?)\]', ai_reply, flags=re.IGNORECASE)
-        clean_text = re.sub(r'\[IMAGE:\s*.*?\]', '', ai_reply, flags=re.IGNORECASE).strip()
-
-        images_to_send = []
-        menu_items = get_menu_from_sheet()
-        for tag in image_tags:
-            for item in menu_items:
-                if tag.lower().strip() in str(item.get("Name", "")).lower():
-                    if item.get("Image"):
-                        images_to_send.append(item["Image"])
-                    break
+        clean_text = ai_reply.strip()
 
         if "||ORDER_DONE||" in clean_text:
-            # Safe catch: Prevent double order if active exists
             if get_recent_order(sender_phone):
-                send_whatsapp_message(sender_phone, "Aapka ek order pehle hi chal raha hai. Aap us mein hi cheezein add karwa sakte hain.")
+                send_whatsapp_message(sender_phone, "Aapka active order pehle hi chal raha hai.")
                 return
 
             order_details = clean_text.split("||ORDER_DONE||")[1].strip()
@@ -282,25 +243,12 @@ def process_ai_response(sender_phone, msg_body):
             order_id = "ORD-" + "".join(random.choices(string.ascii_uppercase + string.digits, k=5))
             save_order_to_sheet(order_id, sender_phone, order_details)
             
-            owner_alert = f"🚨 URGENT: Almaida Fried Par Naya AI Order Aaya Hai! 🚨\n\n📱 Customer: {sender_phone}\n🧾 Order ID: {order_id}\n\n{order_details}\n\n⚡ Kitchen ko foran tayari ka hukm dein!"
+            owner_alert = f"🚨 URGENT: Almaida Fried Par Naya AI Order Aaya Hai! 🚨\n\n📱 Customer: {sender_phone}\n🧾 Order ID: {order_id}\n\n{order_details}"
             send_whatsapp_message(OWNER_PHONE, owner_alert)
             
-            customer_msg = f"🎉 Order Confirmed! 🎉\n\nAapka order successfully book ho gaya hai aur kitchen mein chef ko bhej diya gaya hai! 👨‍🍳\n🧾 Order ID: {order_id}\n⏱️ Estimated Delivery Time: 35 to 45 minutes.\n\n(Aap aglay 30 minute tak is order mein tabdeeli ya cancellation karwa sakte hain). Shukriya! 🍔✨"
+            customer_msg = f"🎉 Order Confirmed! 🎉\n🧾 Order ID: {order_id}\n⏱️ Estimated Delivery: 35-45 mins.\n(Aap 30 minute tak order change/cancel karwa sakte hain)."
             send_whatsapp_message(sender_phone, customer_msg)
-
-        elif "||ORDER_CANCEL||" in clean_text:
-            recent_order = get_recent_order(sender_phone)
-            if recent_order:
-                 update_order_status(recent_order['row'], 'cancelled')
-                 o_id = recent_order['order_id']
-                 
-                 owner_alert = f"⚠️ ORDER CANCELLED! ⚠️\n\n📱 Customer: {sender_phone}\n🧾 Order ID: {o_id}\n\nCustomer ne apna order cancel kar diya hai. Kitchen ko rok dein!"
-                 send_whatsapp_message(OWNER_PHONE, owner_alert)
-                 
-                 cust_msg = f"✅ Aapka order (ID: {o_id}) successfully cancel kar diya gaya hai. Jab bhi bhook lagay, Almaida Fried yahan mojood hai!"
-                 send_whatsapp_message(sender_phone, cust_msg)
-            else:
-                 send_whatsapp_message(sender_phone, "Is waqt aapka koi active order nahi hai jise cancel kiya ja sakay.")
+            user_sessions[sender_phone] = create_ai_session(sender_phone)
 
         elif "||ORDER_MODIFY||" in clean_text:
             recent_order = get_recent_order(sender_phone)
@@ -309,25 +257,20 @@ def process_ai_response(sender_phone, msg_body):
                 o_id = recent_order['order_id']
                 update_order_status(recent_order['row'], 'active', parts)
 
-                owner_alert = f"🔄 ORDER ADDITION / UPDATE! 🔄\n\n📱 Customer: {sender_phone}\n🧾 Order ID: {o_id}\n\nCustomer ne apne order mein mazeed items add kiye hain ya tabdeeli ki hai. Nayi Final Details yeh hain:\n\n{parts}\n\n⚡ Kitchen ko is naye bill ke mutabiq update karein!"
+                owner_alert = f"🔄 ORDER UPDATE! 🔄\n\n📱 Customer: {sender_phone}\n🧾 Order ID: {o_id}\n\n[NAYI DETAILS / ADDED ITEMS]:\n{parts}"
                 send_whatsapp_message(OWNER_PHONE, owner_alert)
                 
-                cust_msg = f"✅ Aapka order (ID: {o_id}) successfully update kar diya gaya hai! Nayi items note kar li gayi hain. Shukriya! 🍔✨"
+                cust_msg = f"✅ Aapka order (ID: {o_id}) successfully update kar diya gaya hai! Shukriya."
                 send_whatsapp_message(sender_phone, cust_msg)
             else:
-                send_whatsapp_message(sender_phone, "Aapka pichla order time mukammal hone ki wajah se close ho chuka hai. Baraye meharbani naya order dein.")
+                send_whatsapp_message(sender_phone, "Aapka pichla order close ho chuka hai.")
 
         else:
-            if images_to_send:
-                send_whatsapp_image(sender_phone, images_to_send[0], clean_text)
-                for img in images_to_send[1:]:
-                    send_whatsapp_image(sender_phone, img, "")
-            else:
-                send_whatsapp_message(sender_phone, clean_text)
+            send_whatsapp_message(sender_phone, clean_text)
 
     except Exception as ai_error:
         print("AI System Error:", ai_error)
-        send_whatsapp_message(sender_phone, "Maaf kijiye ga, system thora busy hai. Kya aap apna message dobara bhej sakte hain?")
+        send_whatsapp_message(sender_phone, "Ji Sir, order update kar diya gaya hai. Kuch aur darkaar hai?")
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
@@ -356,13 +299,12 @@ def webhook():
 
             if msg_lower == "reset system":
                 user_sessions[sender_phone] = create_ai_session(sender_phone)
-                send_whatsapp_message(sender_phone, "System has been manually reset.")
+                send_whatsapp_message(sender_phone, "System reset ho gaya hai.")
                 return jsonify({"status": "success"}), 200
 
             if msg_lower in ["clear", "reset", "cancel", "cancel order"]:
-                # Normal system clear (Does not cancel an active order in sheet unless strictly asked inside chat)
                 user_sessions[sender_phone] = create_ai_session(sender_phone)
-                send_whatsapp_message(sender_phone, "Aapka system refresh kar diya gaya hai. Naya order shuru karne ke liye 'Hi' likhein.")
+                send_whatsapp_message(sender_phone, "System refresh ho gaya hai. Naya order ke liye 'Hi' likhein.")
                 return jsonify({"status": "success"}), 200
 
             thread = threading.Thread(target=process_ai_response, args=(sender_phone, msg_body))
@@ -378,4 +320,4 @@ def webhook():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
-                    
+        
