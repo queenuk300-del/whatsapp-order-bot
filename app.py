@@ -16,7 +16,7 @@ WHATSAPP_TOKEN = os.environ.get("WHATSAPP_TOKEN")
 PHONE_NUMBER_ID = os.environ.get("PHONE_NUMBER_ID")
 VERIFY_TOKEN = os.environ.get("VERIFY_TOKEN", "my_secure_verify_token")
 OWNER_PHONE = os.environ.get("OWNER_PHONE", "923046763002")
-SHEET_NAME = os.environ.get("SHEET_NAME", "SHEET1") # Yahan default SHEET1 kar diya hai
+SHEET_NAME = os.environ.get("SHEET_NAME", "SHEET1")
 
 # OpenRouter API Setup
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY")
@@ -28,7 +28,7 @@ client = OpenAI(
 user_sessions = {}
 processed_message_ids = []
 
-# --- Google Sheets Functions (Pakki Memory) ---
+# --- Google Sheets Functions (Data Saving) ---
 def get_sheet(tab_name):
     try:
         gc = gspread.service_account(filename='/etc/secrets/credentials.json')
@@ -40,7 +40,7 @@ def get_sheet(tab_name):
 
 def get_menu_from_sheet():
     try:
-        worksheet = get_sheet("Sheet1") # Tab ka naam jo andar hota hai
+        worksheet = get_sheet("Sheet1")
         if worksheet:
             records = worksheet.get_all_records()
             if records:
@@ -48,7 +48,6 @@ def get_menu_from_sheet():
     except Exception:
         pass
     
-    # Fallback Menu agar sheet masla kare
     return [
         {"Name": "Zinger Deal (4 Burgers + 4 Drinks)", "Price": 950, "Image": "https://images.unsplash.com/photo-1561758033-d89a9ad46330"},
         {"Name": "Couple Deal (2 Zinger + 2 Drinks)", "Price": 550, "Image": "https://images.unsplash.com/photo-1550547660-d9450f859349"},
@@ -126,11 +125,11 @@ def get_system_instruction(sender_phone):
     if cust_profile:
         name = cust_profile['name']
         addr = cust_profile['address']
-        memory_context += f"\n# CUSTOMER PROFILE:\nName: {name}\nAddress: {addr}\n(Instructions: Agar customer wapas aye, to usey naam se welcome karein aur poochein kya order purane address pe bhejna hai.)\n"
+        memory_context += f"\n# CUSTOMER PROFILE:\nName: {name}\nAddress: {addr}\n(Instructions: Customer ko us ke naam se welcome karein aur poochein kya order isi purane address pe bhejna hai.)\n"
     
     recent_order = get_recent_order(sender_phone)
     if recent_order:
-        memory_context += f"\n# RECENT ACTIVE ORDER (Within 5 mins):\nOrder ID: {recent_order['order_id']}\nDetails: {recent_order['details']}\n(Instructions: Customer is order mein change ya cancel karwa sakta hai.)\n"
+        memory_context += f"\n# RECENT ACTIVE ORDER (Within 5 mins):\nOrder ID: {recent_order['order_id']}\nDetails: {recent_order['details']}\n(Instructions: Agar customer is order mein change ya cancel chahe, toh aap handle kar sakte hain.)\n"
 
     return f"""Aap 'Almaida Fried' ke professional AI Virtual Order Taker hain. Sirf Pakistani Roman Urdu mein mukhtasir baat karte hain.
 
@@ -138,12 +137,14 @@ def get_system_instruction(sender_phone):
 {menu_text}
 {memory_context}
 
-# STRICT RULES:
-1. **Identity:** Main Almaida Fried ka AI Virtual Order Taker hoon. Koi insaan nahi.
-2. **Short & Professional:** Messages 1-2 lines ke hon.
-3. **No Stars/Bold:** Text mein kahin bhi asterisks (*) HARGIZ na lagayein.
-4. **Silent Images:** Tasweer bhejte waqt sirf `[IMAGE: Item Name]` lagayein, text mein na bolen.
-5. **FINAL ORDER FORMATS (CRITICAL):**
+# STRICT RULES (Lazmi follow karein):
+1. **Identity & Language:** Main Almaida Fried ka AI Virtual Order Taker hoon. Hindi alfaz (jaise 'havaal', 'swagat', 'jaani') HARGIZ istemaal na karein. Sirf "Assalam o Alaikum", "Sir/Ma'am" kahein.
+2. **Pehla Jawab (Greeting + Menu):** Jab customer pehli baar 'Hi' ya 'Salam' bheje, toh foran ek chhota salam kar ke MUKAMMAL MENU bhej dein.
+3. **Short & Professional:** Messages 1-2 lines ke hon. No kahani.
+4. **Out-of-Menu & Smart Suggestions:** Agar customer aisi cheez mange jo menu mein NAHI hai, toh politely maazrat karein. AGAR us se milti julti koi cheez menu mein hai, toh foran option dein. Fuzool baaton ka jawab na dein.
+5. **No Stars/Bold:** Text mein kahin bhi asterisks (*) HARGIZ na lagayein.
+6. **Silent Images:** Tasweer bhejte waqt sirf `[IMAGE: Item Name]` lagayein, text mein tasweer bhejne ka zikr na karein.
+7. **FINAL ORDER FORMATS (CRITICAL):**
    Sirf in 3 formats ka use karein. Izafi baatein (Shukriya) in formats mein shamil na karein.
 
    - NAYA ORDER: (Jab Name/Address dono mil jayen)
@@ -255,10 +256,10 @@ def process_ai_response(sender_phone, msg_body):
             order_id = "ORD-" + "".join(random.choices(string.ascii_uppercase + string.digits, k=5))
             save_order_to_sheet(order_id, sender_phone, order_details)
             
-            owner_alert = f"🚨 URGENT: Almaida Fried Par Naya AI Order Aaya Hai! 🚨\n\n📱 Customer: {sender_phone}\n🧾 Order ID: {order_id}\n\n{order_details}\n\n⚡ Kitchen ko foran tayari ka hukm dein!"
+            owner_alert = f"🚨 URGENT: Almaida Fried Par Naya AI Order Aaya Hai! 🚨\n\n📱 Customer Number: {sender_phone}\n🧾 Order ID: {order_id}\n\n{order_details}\n\n⚡ Kitchen ko foran tayari ka hukm dein!"
             send_whatsapp_message(OWNER_PHONE, owner_alert)
             
-            customer_msg = f"🎉 Order Confirmed! 🎉\n\nAapka order successfully book ho gaya hai! \n🧾 Order ID: {order_id}\n⏱️ Estimated Delivery Time: 35 to 45 minutes.\n\n(Aap aglay 5 minute tak is order mein tabdeeli ya cancellation karwa sakte hain). Shukriya! 🍔✨"
+            customer_msg = f"🎉 Order Confirmed! 🎉\n\nAapka order successfully book ho gaya hai aur kitchen mein chef ko bhej diya gaya hai! 👨‍🍳\n🧾 Order ID: {order_id}\n⏱️ Estimated Delivery Time: 35 to 45 minutes.\n\n(Aap aglay 5 minute tak is order mein tabdeeli ya cancellation karwa sakte hain). Shukriya! 🍔✨"
             send_whatsapp_message(sender_phone, customer_msg)
             user_sessions[sender_phone] = create_ai_session(sender_phone)
 
@@ -353,4 +354,4 @@ def webhook():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
-            
+                        
