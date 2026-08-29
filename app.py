@@ -2,6 +2,7 @@ import os
 import re
 import requests
 import gspread
+import threading
 from flask import Flask, request, jsonify
 from openai import OpenAI
 
@@ -73,21 +74,22 @@ def get_system_instruction():
     for idx, item in enumerate(menu_items, 1):
         menu_text += f"- {item.get('Name')} : Rs. {item.get('Price')} [IMAGE: {item.get('Name')}]\n"
 
-    return f"""Aap 'Almaida Fried' ke ek polite, professional, aur experienced human order-taker hain. Aap hamesha Roman Urdu mein baat karte hain.
+    return f"""Aap 'Almaida Fried' ke ek polite, professional, aur experienced human order-taker hain. Aap hamesha Pakistani Roman Urdu mein baat karte hain.
 
 # Aapka Menu:
 {menu_text}
 
 # STRICT RULES (Lazmi follow karein):
-1. **Never Act Like AI:** Aap ek insaan hain. Kisi bhi surat mein khud ko 'AI', 'bot', ya 'computer program' mat kahein. Agar koi paani mange, toh simply bataein "Sir, hamare paas Cold Drinks available hain".
-2. **Short & Professional:** Messages sirf 1-2 lines ke hon. Kahaniyan, lambi baatein, ya over-acting hargiz na karein. Deal foran close karne par focus karein.
-3. **Menu Display Rule:** Mukammal menu sirf pehli baar jab customer 'Hi' ya 'Salam' kare tab bhejein, ya tab jab wo explicitly mange. Har message mein menu mat bhejein.
-4. **No Stars/Bold:** Text mein kahin bhi asterisks (*) ka istemaal HARGIZ na karein. Bilkul clean text likhein.
-5. **Silent Images:** Kabhi yeh mat kahein ke "main tasweer bhej raha hoon". Sirf chup chap item ka tag `[IMAGE: Item Name]` text mein laga dein.
-6. **ORDER FINALIZATION (CRITICAL):**
-   - Jab customer order confirm kar de, toh us se uska "Mukammal Naam" aur "Delivery Address" mangein.
-   - JAB TAK customer apna asal naam aur address na bata de, tab tak `||ORDER_DONE||` wala format HARGIZ generate nahi karna. Please do not use placeholders like '[Customer Name - please provide]'.
-7. **FINAL FORMAT (ONLY THIS, NO EXTRA TALK):** Jab Name aur Address dono mil jayein, TOH SIRF yeh exact format bhejein (is ke aage peechay "Shukriya" jaisi koi baat nahi karni):
+1. **Pakistani Roman Urdu ONLY:** Aap ek Pakistani hain, is liye hamesha aam Pakistani zaban istemaal karein. Indian ya Hindi alfaz (jaise 'Kripya', 'Swagat', 'Dhanyawad', 'Namaste') HARGIZ istemaal na karein. Hamesha "Assalam o Alaikum", "Jee zaroor", "Kya order lagwaun", aur "Shukriya" jaisay alfaz use karein.
+2. **Never Act Like AI:** Kisi bhi surat mein khud ko 'AI', 'bot', ya 'computer program' mat kahein. Aap ek asli insaan ki tarah behave karein.
+3. **Short & Professional:** Messages sirf 1-2 lines ke hon. Kahaniyan ya lambi baatein hargiz na karein. To-the-point jawab dein.
+4. **Menu Display Rule:** Mukammal menu sirf pehli baar jab customer 'Hi' ya 'Salam' kare tab bhejein, ya tab jab wo exclusively mange. Har message mein menu mat bhejein.
+5. **No Stars/Bold:** Text mein kahin bhi asterisks (*) ka istemaal HARGIZ na karein. Bilkul clean text likhein.
+6. **Silent Images:** Kabhi yeh mat kahein ke "main tasweer bhej raha hoon". Sirf chup chap item ka tag `[IMAGE: Item Name]` text mein laga dein.
+7. **ORDER FINALIZATION (CRITICAL):**
+   - Jab customer order final kar de, toh us se uska "Mukammal Naam" aur "Delivery Address" mangein.
+   - JAB TAK customer apna asal naam aur address type kar ke na bata de, tab tak `||ORDER_DONE||` wala format generate HARGIZ nahi karna.
+8. **FINAL FORMAT (ONLY THIS, NO EXTRA TALK):** Jab Name aur Address dono mil jayein, TOH SIRF yeh exact format bhejein (is ke aage peechay "Shukriya" jaisi koi baat nahi karni):
 
 ||ORDER_DONE||
 Name: [Asal Naam jo customer ne diya]
@@ -140,6 +142,57 @@ def send_whatsapp_image(recipient, image_url, caption=""):
     }
     requests.post(url, headers=headers, json=payload)
 
+# Yeh function background thread mein chale ga taa ke webhook timeout na ho
+def process_ai_response(sender_phone, msg_body):
+    try:
+        user_sessions[sender_phone].append({"role": "user", "content": msg_body})
+
+        response = client.chat.completions.create(
+            model="openrouter/free",
+            messages=user_sessions[sender_phone]
+        )
+        
+        ai_reply = response.choices[0].message.content
+        user_sessions[sender_phone].append({"role": "assistant", "content": ai_reply})
+
+        # Hard clean of any asterisks
+        ai_reply = ai_reply.replace("*", "")
+
+        image_tags = re.findall(r'\[IMAGE:\s*(.*?)\]', ai_reply, flags=re.IGNORECASE)
+        clean_text = re.sub(r'\[IMAGE:\s*.*?\]', '', ai_reply, flags=re.IGNORECASE).strip()
+
+        images_to_send = []
+        menu_items = get_menu_from_sheet()
+        for tag in image_tags:
+            for item in menu_items:
+                if tag.lower().strip() in str(item.get("Name", "")).lower():
+                    if item.get("Image"):
+                        images_to_send.append(item["Image"])
+                    break
+
+        if "||ORDER_DONE||" in clean_text:
+            parts = clean_text.split("||ORDER_DONE||")
+            order_details = parts[1].strip()
+            
+            owner_alert = f"🚨 URGENT: Almaida Fried Par Naya AI Order Aaya Hai! 🚨\n\n📱 Customer Number: {sender_phone}\n\n{order_details}\n\n⚡ Kitchen ko foran tayari ka hukm dein!"
+            send_whatsapp_message(OWNER_PHONE, owner_alert)
+            
+            customer_msg = "🎉 Order Confirmed! 🎉\n\nAapka order successfully book ho gaya hai aur kitchen mein chef ko bhej diya gaya hai! 👨‍🍳\n⏱️ Estimated Delivery Time: 35 to 45 minutes.\n\nGaram garam khana jald aapke darwaze par hoga. Shukriya! 🍔✨"
+            send_whatsapp_message(sender_phone, customer_msg)
+            user_sessions[sender_phone] = create_ai_session()
+        else:
+            if images_to_send:
+                send_whatsapp_image(sender_phone, images_to_send[0], clean_text)
+                for img in images_to_send[1:]:
+                    send_whatsapp_image(sender_phone, img, "")
+            else:
+                send_whatsapp_message(sender_phone, clean_text)
+
+    except Exception as ai_error:
+        print("AI System Error:", ai_error)
+        send_whatsapp_message(sender_phone, "Maaf kijiye ga, internet connection thora slow hai. Ek bar phir se likh dein please.")
+
+
 @app.route("/webhook", methods=["POST"])
 def webhook():
     data = request.get_json()
@@ -180,53 +233,13 @@ def webhook():
                 send_whatsapp_message(sender_phone, "Aapka order cancel kar diya gaya hai. Naya order shuru karne ke liye 'Hi' likhein.")
                 return jsonify({"status": "success"}), 200
 
-            try:
-                user_sessions[sender_phone].append({"role": "user", "content": msg_body})
+            # --- Start Background Threading ---
+            # Is se WhatsApp ko foran 200 OK mil jaye ga aur AI sakoon se background mein soche ga
+            thread = threading.Thread(target=process_ai_response, args=(sender_phone, msg_body))
+            thread.start()
 
-                response = client.chat.completions.create(
-                    model="openrouter/free",
-                    messages=user_sessions[sender_phone]
-                )
-                
-                ai_reply = response.choices[0].message.content
-                user_sessions[sender_phone].append({"role": "assistant", "content": ai_reply})
-
-                # Hard clean of any asterisks
-                ai_reply = ai_reply.replace("*", "")
-
-                image_tags = re.findall(r'\[IMAGE:\s*(.*?)\]', ai_reply, flags=re.IGNORECASE)
-                clean_text = re.sub(r'\[IMAGE:\s*.*?\]', '', ai_reply, flags=re.IGNORECASE).strip()
-
-                images_to_send = []
-                menu_items = get_menu_from_sheet()
-                for tag in image_tags:
-                    for item in menu_items:
-                        if tag.lower().strip() in str(item.get("Name", "")).lower():
-                            if item.get("Image"):
-                                images_to_send.append(item["Image"])
-                            break
-
-                if "||ORDER_DONE||" in clean_text:
-                    parts = clean_text.split("||ORDER_DONE||")
-                    order_details = parts[1].strip()
-                    
-                    owner_alert = f"🚨 URGENT: Almaida Fried Par Naya AI Order Aaya Hai! 🚨\n\n📱 Customer Number: {sender_phone}\n\n{order_details}\n\n⚡ Kitchen ko foran tayari ka hukm dein!"
-                    send_whatsapp_message(OWNER_PHONE, owner_alert)
-                    
-                    customer_msg = "🎉 Order Confirmed! 🎉\n\nAapka order successfully book ho gaya hai aur kitchen mein chef ko bhej diya gaya hai! 👨‍🍳\n⏱️ Estimated Delivery Time: 35 to 45 minutes.\n\nGaram garam khana jald aapke darwaze par hoga. Shukriya! 🍔✨"
-                    send_whatsapp_message(sender_phone, customer_msg)
-                    user_sessions[sender_phone] = create_ai_session()
-                else:
-                    if images_to_send:
-                        send_whatsapp_image(sender_phone, images_to_send[0], clean_text)
-                        for img in images_to_send[1:]:
-                            send_whatsapp_image(sender_phone, img, "")
-                    else:
-                        send_whatsapp_message(sender_phone, clean_text)
-
-            except Exception as ai_error:
-                print("AI System Error:", ai_error)
-                send_whatsapp_message(sender_phone, "Maaf kijiye, abhi thora rush hai. Ek choti si line likh kar dobara message bhej dein.")
+            # Foran return 200 OK taa ke WhatsApp bar bar error na de
+            return jsonify({"status": "success"}), 200
 
     except Exception as e:
         print(f"Webhook Error: {e}")
@@ -236,4 +249,4 @@ def webhook():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
-                        
+        
