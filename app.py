@@ -202,6 +202,8 @@ def verify_webhook():
     return "Verification failed", 403
 
 def send_whatsapp_message(recipient, text):
+    if not text:
+        return
     url = f"https://graph.facebook.com/v17.0/{PHONE_NUMBER_ID}/messages"
     headers = {
         "Authorization": f"Bearer {WHATSAPP_TOKEN}",
@@ -296,6 +298,22 @@ def process_ai_response(sender_phone, msg_body):
 
         user_sessions[sender_phone].append({"role": "assistant", "content": ai_reply})
         clean_text = ai_reply.strip()
+
+        # --- IMAGE EXTRACTION FIX LOGIC ---
+        images_to_send = []
+        image_tags = re.findall(r'\[IMAGE:\s*(.*?)\]', clean_text)
+        
+        if image_tags:
+            menu_items = get_menu_from_sheet()
+            for tag in image_tags:
+                for item in menu_items:
+                    if item.get('Name', '').strip().lower() == tag.strip().lower():
+                        images_to_send.append(item.get('Image'))
+                        break
+            
+            # Remove the tags from the text so it looks clean to the customer
+            clean_text = re.sub(r'\[IMAGE:\s*.*?\]', '', clean_text).strip()
+        # ----------------------------------
 
         if "||ORDER_DONE||" in clean_text:
             if get_recent_order(sender_phone):
